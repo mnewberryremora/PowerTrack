@@ -76,54 +76,42 @@ def _fmt(val: Any) -> str:
     return str(val).strip()
 
 
-def extract_raw_cells(file_bytes: bytes, max_rows: int = 500) -> str:
-    """Extract raw cell data from an XLSX file and format as readable text.
+def extract_sheet_cells(ws: Any, max_rows: int = 500) -> str:
+    """Extract raw cell data from a single worksheet as readable text.
 
-    Filters to only sheets with actual training data and trims metadata columns.
-    Returns a text representation of the spreadsheet that the AI can interpret.
+    Returns empty string if the sheet appears to be a template with no actual data.
     """
-    wb = load_workbook(filename=io.BytesIO(file_bytes), read_only=True, data_only=True)
-    sheets_text: list[str] = []
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return ""
 
-    for ws in wb.worksheets:
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
+    # Trim trailing empty rows
+    while rows and all(c is None or str(c).strip() == "" for c in rows[-1]):
+        rows.pop()
+    if not rows:
+        return ""
+
+    # Detect header and check if this sheet has real data
+    header_idx = _detect_header_row(rows)
+    if header_idx is not None and not _sheet_has_actual_data(rows, header_idx):
+        return ""  # Template-only sheet, skip
+
+    # Determine which columns are training data (not metadata)
+    if header_idx is not None:
+        data_cols = _detect_data_columns(rows[header_idx])
+    else:
+        data_cols = list(range(len(rows[0])))
+
+    rows = rows[:max_rows]
+
+    lines: list[str] = [f"=== Sheet: {ws.title} ==="]
+    for row_idx, row in enumerate(rows, start=1):
+        cells = [_fmt(row[i]) if i < len(row) else "" for i in data_cols]
+        if all(c == "" for c in cells):
             continue
+        lines.append(f"Row {row_idx}: {' | '.join(cells)}")
 
-        # Trim trailing empty rows
-        while rows and all(c is None or str(c).strip() == "" for c in rows[-1]):
-            rows.pop()
-
-        if not rows:
-            continue
-
-        # Detect header and check if this sheet has real data
-        header_idx = _detect_header_row(rows)
-        if header_idx is not None and not _sheet_has_actual_data(rows, header_idx):
-            # Skip template-only sheets with no actual workout data
-            continue
-
-        # Determine which columns are training data (not metadata)
-        if header_idx is not None:
-            data_cols = _detect_data_columns(rows[header_idx])
-        else:
-            data_cols = list(range(len(rows[0])))
-
-        rows = rows[:max_rows]
-
-        lines: list[str] = [f"=== Sheet: {ws.title} ==="]
-        for row_idx, row in enumerate(rows, start=1):
-            # Only include data columns, format datetimes cleanly
-            cells = [_fmt(row[i]) if i < len(row) else "" for i in data_cols]
-            # Skip fully empty rows
-            if all(c == "" for c in cells):
-                continue
-            lines.append(f"Row {row_idx}: {' | '.join(cells)}")
-
-        sheets_text.append("\n".join(lines))
-
-    wb.close()
-    return "\n\n".join(sheets_text)
+    return "\n".join(lines)
 
 
 async def get_exercise_names(db: AsyncSession) -> list[str]:
@@ -275,56 +263,73 @@ async def _call_grok_import(system_prompt: str, user_message: str) -> str:
         return data["choices"][0]["message"]["content"]
 
 
+def _parse_grok_json(response_text: str) -> tuple[list[dict], list[str]]:
+    """Parse Grok's JSON response, stripping markdown fences if present.
+
+    Returns (workouts, warnings). On parse failure returns ([], [error_message]).
+    """
+    cleaned = response_text.strip()
+    if cleaned.startswith("```"):
+        lines = [l for l in cleaned.split("\n") if not l.strip().startswith("```")]
+        cleaned = "\n".join(lines)
+    try:
+        parsed = json.loads(cleaned)
+        return parsed.get("workouts", []), parsed.get("warnings", [])
+    except json.JSONDecodeError:
+        return [], [
+            "AI could not parse this sheet into structured data.",
+            f"Raw response: {response_text[:300]}",
+        ]
+
+
 async def ai_parse_xlsx(file_bytes: bytes, db: AsyncSession) -> dict[str, Any]:
     """Use Grok to interpret a freeform spreadsheet and return structured workout data.
 
+    Processes each sheet independently and merges results.
     Returns the same format as parse_xlsx() so the existing confirm flow can be reused.
     """
-    # Extract raw cell data
-    raw_text = extract_raw_cells(file_bytes)
-    if not raw_text.strip():
-        return {
-            "workouts": [],
-            "unmatched_exercises": [],
-            "exercise_suggestions": {},
-            "warnings": ["Spreadsheet appears to be empty."],
-            "stats": {"total_workouts": 0, "total_sets": 0, "date_range": ""},
-        }
+    wb = load_workbook(filename=io.BytesIO(file_bytes), read_only=True, data_only=True)
+    sheets = wb.worksheets
+    wb.close()
 
-    # Get known exercises for matching
+    # Re-open non-read-only for sheet iteration (read_only doesn't support len well)
+    wb2 = load_workbook(filename=io.BytesIO(file_bytes), data_only=True)
+
+    # Get known exercises once for all sheets
     exercise_names = await get_exercise_names(db)
-
-    # Build prompts
     system_prompt = build_import_system_prompt(exercise_names)
-    user_message = f"Parse this spreadsheet data into structured workouts:\n\n{raw_text}"
 
-    # Call Grok with higher token limit
-    response_text = await _call_grok_import(system_prompt, user_message)
+    all_workouts: list[dict] = []
+    all_warnings: list[str] = []
+    sheets_processed = 0
 
-    # Parse the JSON response — strip markdown fences if Grok wraps them
-    cleaned = response_text.strip()
-    if cleaned.startswith("```"):
-        # Remove ```json ... ``` wrapping
-        lines = cleaned.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        cleaned = "\n".join(lines)
+    for ws in wb2.worksheets:
+        sheet_text = extract_sheet_cells(ws)
+        if not sheet_text.strip():
+            continue
 
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
+        sheets_processed += 1
+        user_message = f"Parse this spreadsheet data into structured workouts:\n\n{sheet_text}"
+        response_text = await _call_grok_import(system_prompt, user_message)
+        workouts, warnings = _parse_grok_json(response_text)
+
+        if warnings:
+            all_warnings.extend([f"[{ws.title}] {w}" for w in warnings])
+        all_workouts.extend(workouts)
+
+    wb2.close()
+
+    if sheets_processed == 0:
         return {
             "workouts": [],
             "unmatched_exercises": [],
             "exercise_suggestions": {},
-            "warnings": [
-                "AI could not parse the spreadsheet into structured data.",
-                f"Raw AI response: {response_text[:500]}",
-            ],
+            "warnings": ["Spreadsheet appears to be empty or contains no training data."],
             "stats": {"total_workouts": 0, "total_sets": 0, "date_range": ""},
         }
 
-    workouts = parsed.get("workouts", [])
-    ai_warnings = parsed.get("warnings", [])
+    workouts = all_workouts
+    ai_warnings = all_warnings
 
     # Load exercises for fuzzy matching
     result = await db.execute(select(Exercise))
