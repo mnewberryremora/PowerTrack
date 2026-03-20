@@ -27,6 +27,7 @@ NOTES_ALIASES = {"notes", "note", "comments", "comment"}
 BODYWEIGHT_ALIASES = {"bodyweight", "body weight", "bw", "bw (lbs)"}
 SLEEP_ALIASES = {"sleep", "sleep quality", "sleep_quality"}
 FATIGUE_ALIASES = {"fatigue", "fatigue level", "fatigue_level"}
+WORKOUT_NAME_ALIASES = {"workout name", "workout", "session", "session name", "name"}
 
 _ALL_ALIAS_GROUPS: list[tuple[str, set[str]]] = [
     ("date", DATE_ALIASES),
@@ -40,6 +41,7 @@ _ALL_ALIAS_GROUPS: list[tuple[str, set[str]]] = [
     ("bodyweight", BODYWEIGHT_ALIASES),
     ("sleep", SLEEP_ALIASES),
     ("fatigue", FATIGUE_ALIASES),
+    ("workout_name", WORKOUT_NAME_ALIASES),
 ]
 
 
@@ -223,6 +225,8 @@ async def parse_xlsx(file_bytes: bytes, db: AsyncSession) -> dict[str, Any]:
         set_type = str(_cell("type")).strip().lower() if has_type_col and _cell("type") else "working"
         notes = str(_cell("notes")).strip() if _cell("notes") else None
 
+        workout_name = str(_cell("workout_name")).strip() if _cell("workout_name") else None
+
         set_dict = {
             "set_number": set_number,  # may be None; auto-numbered later
             "weight_lbs": float(weight),
@@ -231,6 +235,7 @@ async def parse_xlsx(file_bytes: bytes, db: AsyncSession) -> dict[str, Any]:
             "set_type": set_type,
             "notes": notes,
             "exercise_name": exercise_name,
+            "workout_name": workout_name,
         }
 
         date_groups.setdefault(parsed_date, []).append(set_dict)
@@ -261,6 +266,8 @@ async def parse_xlsx(file_bytes: bytes, db: AsyncSession) -> dict[str, Any]:
     for d in sorted(date_groups.keys()):
         rows_for_date = date_groups[d]
         meta = date_meta.get(d, {})
+        # Use workout name from first row that has one
+        workout_name = next((r["workout_name"] for r in rows_for_date if r.get("workout_name")), None)
 
         # Group by exercise name, preserving order of first appearance
         exercise_order: list[str] = []
@@ -307,6 +314,7 @@ async def parse_xlsx(file_bytes: bytes, db: AsyncSession) -> dict[str, Any]:
 
         workouts.append({
             "date": d.isoformat(),
+            "name": workout_name,
             "bodyweight": meta.get("bodyweight"),
             "sleep_quality": meta.get("sleep_quality"),
             "fatigue_level": meta.get("fatigue_level"),
@@ -371,7 +379,7 @@ async def create_workouts_from_import(
             workout = Workout(
                 user_id=user_id,
                 date=workout_date,
-                name=f"Imported {workout_date.isoformat()}",
+                name=workout_data.get("name") or f"Imported {workout_date.isoformat()}",
                 bodyweight_lbs=Decimal(str(workout_data["bodyweight"])) if workout_data.get("bodyweight") else None,
                 sleep_quality=workout_data.get("sleep_quality"),
                 fatigue_level=workout_data.get("fatigue_level"),

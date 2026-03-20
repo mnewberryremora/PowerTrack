@@ -113,6 +113,7 @@ class ImportExercisePreview(BaseModel):
 
 class ImportWorkoutPreview(BaseModel):
     date: str
+    name: Optional[str] = None
     bodyweight: Optional[float] = None
     sleep_quality: Optional[int] = None
     fatigue_level: Optional[int] = None

@@ -275,6 +275,7 @@ export interface UserPreferencesUpdate {
 
 export interface ImportPreviewWorkout {
   date: string
+  name?: string
   bodyweight?: number
   sleep_quality?: number
   fatigue_level?: number
