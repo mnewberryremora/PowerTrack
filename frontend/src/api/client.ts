@@ -20,8 +20,9 @@ export const getStoredToken = (): string | null => localStorage.getItem(TOKEN_KE
 export const setStoredToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token)
 export const clearStoredToken = (): void => localStorage.removeItem(TOKEN_KEY)
 
+const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/^http:\/\//, 'https://')
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: rawApiUrl,
   headers: { 'Content-Type': 'application/json' },
 })
 
