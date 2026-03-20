@@ -392,8 +392,16 @@ async def create_workouts_from_import(
                 ex_name = ex_data["name"]
                 exercise_id = exercise_map.get(ex_name)
                 if exercise_id is None:
-                    errors.append(f"No exercise mapping for '{ex_name}' on {workout_data['date']}, skipping exercise.")
-                    continue
+                    # Auto-create the exercise
+                    result = await db.execute(select(Exercise).where(Exercise.name == ex_name))
+                    existing_ex = result.scalar_one_or_none()
+                    if existing_ex:
+                        exercise_id = existing_ex.id
+                    else:
+                        new_ex = Exercise(name=ex_name, category="accessory", is_custom=True)
+                        db.add(new_ex)
+                        await db.flush()
+                        exercise_id = new_ex.id
 
                 we = WorkoutExercise(
                     workout_id=workout.id,
