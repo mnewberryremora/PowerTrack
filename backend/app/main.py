@@ -33,6 +33,9 @@ async def lifespan(app: FastAPI):
                 )
                 session.add(admin_user)
                 await session.commit()
+
+    from app.seed import seed_exercises
+    await seed_exercises()
     yield
 
 
