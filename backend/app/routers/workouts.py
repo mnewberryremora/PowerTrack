@@ -359,18 +359,6 @@ async def confirm_import(
     if not data.workouts:
         raise HTTPException(status_code=400, detail="No workouts to import.")
 
-    all_exercise_names: set[str] = set()
-    for w in data.workouts:
-        for ex in w.exercises:
-            all_exercise_names.add(ex.name)
-
-    missing = all_exercise_names - set(data.exercise_map.keys())
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing exercise mappings for: {', '.join(sorted(missing))}",
-        )
-
     import_data = [w.model_dump() for w in data.workouts]
     result = await create_workouts_from_import(db, import_data, data.exercise_map, current_user.id)
 
