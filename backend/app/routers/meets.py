@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -29,7 +30,7 @@ class MeetCreate(BaseModel):
 
 class MeetUpdate(BaseModel):
     name: str | None = None
-    date: date | None = None
+    date: Optional[date] = None
     location: str | None = None
     federation: str | None = None
     weight_class_kg: float | None = None
