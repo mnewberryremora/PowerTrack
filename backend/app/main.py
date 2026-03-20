@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Powerlifting Training Tracker", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Powerlifting Training Tracker", version="0.1.0", lifespan=lifespan, redirect_slashes=False)
 
 # Allow localhost for dev + any production domain set via ALLOWED_ORIGINS env var
 _origins_env = os.environ.get("ALLOWED_ORIGINS", "")
