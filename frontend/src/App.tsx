@@ -16,6 +16,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import EnduranceLog from './pages/EnduranceLog'
 import EnduranceDetail from './pages/EnduranceDetail'
+import EnduranceDashboard from './pages/EnduranceDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -67,7 +68,8 @@ function AppRoutes() {
                 <Route path="/programs" element={<Programs />} />
                 <Route path="/ai-coach" element={<AICoach />} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/endurance" element={<EnduranceLog />} />
+                <Route path="/endurance" element={<EnduranceDashboard />} />
+                <Route path="/endurance/log" element={<EnduranceLog />} />
                 <Route path="/endurance/new" element={<EnduranceDetail />} />
                 <Route path="/endurance/:id" element={<EnduranceDetail />} />
                 <Route path="/admin" element={<AdminDashboard />} />
