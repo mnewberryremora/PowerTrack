@@ -14,6 +14,9 @@ import Settings from './pages/Settings'
 import ImportWorkouts from './pages/ImportWorkouts'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import EnduranceLog from './pages/EnduranceLog'
+import EnduranceDetail from './pages/EnduranceDetail'
+import AdminDashboard from './pages/AdminDashboard'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
@@ -64,6 +67,10 @@ function AppRoutes() {
                 <Route path="/programs" element={<Programs />} />
                 <Route path="/ai-coach" element={<AICoach />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/endurance" element={<EnduranceLog />} />
+                <Route path="/endurance/new" element={<EnduranceDetail />} />
+                <Route path="/endurance/:id" element={<EnduranceDetail />} />
+                <Route path="/admin" element={<AdminDashboard />} />
               </Routes>
             </Layout>
           </ProtectedRoute>

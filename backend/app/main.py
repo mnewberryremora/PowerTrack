@@ -5,10 +5,34 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import exercises, workouts, body_metrics, prs, meets, programs, analytics, ai, user_prefs, auth
+from app.routers import endurance, admin
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Seed admin user if not exists
+    admin_username = os.environ.get("ADMIN_USERNAME", "theironspud")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "")
+    admin_email = os.environ.get("ADMIN_EMAIL", f"{admin_username}@powertrac.local")
+
+    if admin_password:
+        from app.db import async_session
+        from app.models.user import User
+        from app.core.security import hash_password
+        from sqlalchemy import select
+        async with async_session() as session:
+            result = await session.execute(select(User).where(User.email == admin_email))
+            existing = result.scalar_one_or_none()
+            if not existing:
+                admin_user = User(
+                    email=admin_email,
+                    hashed_password=hash_password(admin_password),
+                    display_name=admin_username,
+                    status="approved",
+                    is_admin=True,
+                )
+                session.add(admin_user)
+                await session.commit()
     yield
 
 
@@ -39,6 +63,8 @@ app.include_router(programs.router, prefix="/api/programs", tags=["programs"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(user_prefs.router, prefix="/api/preferences", tags=["preferences"])
+app.include_router(endurance.router, prefix="/api/endurance", tags=["endurance"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/health")

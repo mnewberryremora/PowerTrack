@@ -10,12 +10,16 @@ import {
   Brain,
   Settings2,
   FileSpreadsheet,
+  Activity,
+  ShieldCheck,
 } from 'lucide-react'
 import { useUIStore } from '../../stores/uiStore'
+import { useAuth } from '../../context/AuthContext'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/workouts', label: 'Workouts', icon: Dumbbell },
+  { to: '/endurance', label: 'Endurance', icon: Activity },
   { to: '/import', label: 'Import', icon: FileSpreadsheet },
   { to: '/exercises', label: 'Exercises', icon: ListChecks },
   { to: '/prs', label: 'PRs', icon: Trophy },
@@ -28,6 +32,7 @@ const navItems = [
 
 export default function Sidebar() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
+  const { user } = useAuth()
 
   return (
     <aside
@@ -53,6 +58,21 @@ export default function Sidebar() {
             {sidebarOpen && <span className="truncate">{label}</span>}
           </NavLink>
         ))}
+        {user?.is_admin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-text-muted hover:bg-surface-light hover:text-text'
+              }`
+            }
+          >
+            <ShieldCheck size={20} className="shrink-0" />
+            {sidebarOpen && <span className="truncate">Admin</span>}
+          </NavLink>
+        )}
       </nav>
     </aside>
   )

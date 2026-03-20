@@ -26,6 +26,8 @@ class UserOut(BaseModel):
     email: str
     display_name: str | None
     is_active: bool
+    status: str
+    is_admin: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -35,3 +37,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class RegisterResponse(BaseModel):
+    message: str

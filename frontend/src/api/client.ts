@@ -11,6 +11,7 @@ import type {
   AnalyticsSummary,
   ImportConfirmRequest,
   AuthToken, LoginRequest, RegisterRequest, AuthUser,
+  EnduranceActivity, EnduranceCreate, AdminUser,
 } from '../types'
 
 const TOKEN_KEY = 'auth_token'
@@ -200,6 +201,34 @@ export const preferences = {
     api.get<UserPreferences>('/api/preferences').then(r => r.data),
   update: (data: UserPreferencesUpdate) =>
     api.put<UserPreferences>('/api/preferences', data).then(r => r.data),
+}
+
+// ── Endurance ──
+
+export const endurance = {
+  list: (params?: { activity_type?: string; is_competition?: boolean }) =>
+    api.get<EnduranceActivity[]>('/api/endurance', { params }).then(r => r.data),
+  getById: (id: number) =>
+    api.get<EnduranceActivity>(`/api/endurance/${id}`).then(r => r.data),
+  create: (data: EnduranceCreate) =>
+    api.post<EnduranceActivity>('/api/endurance', data).then(r => r.data),
+  update: (id: number, data: Partial<EnduranceCreate>) =>
+    api.put<EnduranceActivity>(`/api/endurance/${id}`, data).then(r => r.data),
+  delete: (id: number) =>
+    api.delete(`/api/endurance/${id}`).then(r => r.data),
+  competitionTypes: () =>
+    api.get<string[]>('/api/endurance/competition-types').then(r => r.data),
+}
+
+// ── Admin ──
+
+export const adminApi = {
+  users: () =>
+    api.get<AdminUser[]>('/api/admin/users').then(r => r.data),
+  updateStatus: (userId: number, status: string) =>
+    api.patch<AdminUser>(`/api/admin/users/${userId}/status`, { status }).then(r => r.data),
+  toggleAdmin: (userId: number) =>
+    api.patch<AdminUser>(`/api/admin/users/${userId}/admin`).then(r => r.data),
 }
 
 export default api

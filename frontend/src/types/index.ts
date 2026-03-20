@@ -5,6 +5,8 @@ export interface AuthUser {
   email: string
   display_name?: string
   is_active: boolean
+  status: string
+  is_admin: boolean
   created_at: string
 }
 
@@ -312,6 +314,60 @@ export interface ImportResult {
   created_workout_ids: number[]
   created: number
   errors: string[]
+}
+
+// ── Endurance ──
+
+export interface EnduranceActivity {
+  id: number
+  activity_date: string
+  activity_type: 'run' | 'erg'
+  sub_type: string
+  name?: string
+  distance_m?: number
+  duration_s?: number
+  avg_heart_rate?: number
+  avg_split_500m_s?: number
+  stroke_rate?: number
+  calories?: number
+  is_competition: boolean
+  competition_name?: string
+  competition_type?: string
+  place?: number
+  notes?: string
+  pace_per_km?: number  // computed by backend
+  split_500m_display?: string  // computed by backend, e.g. "1:52"
+  created_at: string
+}
+
+export interface EnduranceCreate {
+  activity_date: string
+  activity_type: 'run' | 'erg'
+  sub_type: string
+  name?: string
+  distance_m?: number
+  duration_s?: number
+  avg_heart_rate?: number
+  avg_split_500m_s?: number
+  stroke_rate?: number
+  calories?: number
+  is_competition?: boolean
+  competition_name?: string
+  competition_type?: string
+  place?: number
+  notes?: string
+}
+
+// ── Admin ──
+
+export interface AdminUser {
+  id: number
+  email: string
+  display_name?: string
+  status: 'pending' | 'approved' | 'denied'
+  is_admin: boolean
+  is_active: boolean
+  created_at: string
 }
 
 // ── Analytics ──
