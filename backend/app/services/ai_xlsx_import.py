@@ -2,6 +2,7 @@
 
 import io
 import json
+from datetime import date, datetime
 from typing import Any
 
 from openpyxl import load_workbook
@@ -64,6 +65,17 @@ def _sheet_has_actual_data(rows: list[tuple], header_idx: int | None) -> bool:
     return False
 
 
+def _fmt(val: Any) -> str:
+    """Format a cell value as a clean string."""
+    if val is None:
+        return ""
+    if isinstance(val, datetime):
+        return val.strftime("%Y-%m-%d")
+    if isinstance(val, date):
+        return val.strftime("%Y-%m-%d")
+    return str(val).strip()
+
+
 def extract_raw_cells(file_bytes: bytes, max_rows: int = 500) -> str:
     """Extract raw cell data from an XLSX file and format as readable text.
 
@@ -101,8 +113,8 @@ def extract_raw_cells(file_bytes: bytes, max_rows: int = 500) -> str:
 
         lines: list[str] = [f"=== Sheet: {ws.title} ==="]
         for row_idx, row in enumerate(rows, start=1):
-            # Only include data columns
-            cells = [str(row[i]) if i < len(row) and row[i] is not None else "" for i in data_cols]
+            # Only include data columns, format datetimes cleanly
+            cells = [_fmt(row[i]) if i < len(row) else "" for i in data_cols]
             # Skip fully empty rows
             if all(c == "" for c in cells):
                 continue
@@ -124,25 +136,78 @@ def build_import_system_prompt(exercise_names: list[str]) -> str:
     """Build the system prompt that instructs Grok to interpret spreadsheet data."""
     exercises_list = "\n".join(f"  - {name}" for name in exercise_names) if exercise_names else "  (no exercises in database yet)"
 
-    return f"""You are a data extraction assistant for a powerlifting training tracker app.
+    return f"""You are a data extraction assistant for a fitness training tracker app.
 
 Your job: Read raw spreadsheet data and convert it into structured workout JSON.
 
-The spreadsheet may have ANY format — columns might be labeled differently, data might be arranged in various ways (one row per set, one row per exercise, grouped by day, etc.). Use your best judgment to interpret the data.
+The spreadsheet may have ANY format. Be generous — import everything you can.
 
-CRITICAL FORMAT NOTES:
-- "Rep Scheme" like "2 x 1" means 2 sets of 1 rep. "1 x 3" means 1 set of 3 reps. "3 x 5" means 3 sets of 5 reps. Always expand into individual sets.
-- "Actual" column with "Y" means the set was completed — only include rows marked "Y" (or with data indicating completion).
-- Rows without dates that are separated by blank rows represent different training days.
-- Shorthand exercise names should be matched to the database: "Bench" = bench press, "Squat" = squat, "Chins" = chin-ups, "OHP" = overhead press, etc.
-- Ignore template/program rows that weren't actually performed.
+== WEIGHT TEXT PARSING ==
+Convert text weight values to numeric lbs:
+- "BW" or "Bodyweight" → 0
+- "Band" or "Bands" → 0
+- "25lb DB's", "25lb DB", "25lb DBs", "25 lb DB" → 25 (use single dumbbell weight)
+- "15lb DB's" → 15, "30lb DB" → 30, "35lb DB's" → 35, "20lb DB's" → 20
+- "5lbs", "8lbs", "15lbs", "35lbs" → extract the number (5, 8, 15, 35)
+- "135 lbs", "135lb", "135" → 135
+- Any number followed by lb/lbs/pound/pounds → extract the number
+- If weight looks like kg (e.g., "100kg") → multiply by 2.20462, add warning
 
-KNOWN EXERCISES IN THE DATABASE:
+== SETS/REPS TEXT PARSING ==
+The "Sets" column often contains both set count and rep count as text:
+- "3 sets - 25reps ea"  → 3 sets × 25 reps each
+- "3sets - 25reps ea"   → 3 sets × 25 reps each
+- "3 sets - 10reps ea"  → 3 sets × 10 reps each
+- "3 sets - 15reps ea"  → 3 sets × 15 reps each
+- "1set - 2min hold"    → 1 set × 1 rep (time-based, treat reps=1)
+- "3sets - 2min hold"   → 3 sets × 1 rep (time-based)
+- "3 sets - 2mins ea"   → 3 sets × 1 rep (time-based)
+- "3sets - 3sec hold - 10reps ea → ..." → 3 sets × 10 reps (ignore timing)
+- "10secs - 10reps ea → 3min10secs/set" → 3 sets × 10 reps
+- "3sets - 10secs - 10reps ea → ..." → 3 sets × 10 reps
+- "3sets - 3sec hold - 10reps ea → ..." → 3 sets × 10 reps
+- "1set - 2min hold"    → 1 set × 1 rep
+- "N x M" or "NxM"     → N sets × M reps
+- "3 x 5"              → 3 sets × 5 reps
+
+Rule: pattern is always "N sets - Mreps ea". Timed sets (hold, min, secs) without reps → reps=1.
+
+== DATE INFERENCE FROM DAY-LABELED SECTIONS ==
+Many spreadsheets organize by week:
+1. Look for "Wk of:" or "Week of:" followed by a date in the first 3 rows → this is the week start (Monday)
+2. Day labels appear as single-cell rows: Mon, Tues, Tue, Wed, Thurs, Thu, Fri, Sat, Sun
+3. Map day to date: Mon=+0, Tue/Tues=+1, Wed=+2, Thu/Thurs=+3, Fri=+4, Sat=+5, Sun=+6
+4. All exercises between a day label and the next day label belong to that day's date
+
+== SECTION STRUCTURE ==
+A sheet may have multiple sections per day, each with a header row:
+- "Run" section: columns are (None/Run, Miles, Time, Avg Pace, Cals, Notes) → create exercise named "Run", weight_lbs=0, reps=1, put distance/time/pace in notes
+- "Rehab Workout", "Strength Workout", etc.: standard exercise rows follow
+  - Col 0: Exercise name
+  - Col 1: Weight (parse as above)
+  - Col 2: Sets/reps text (parse as above)
+  - Col 3: Rest time (ignore)
+  - Col 4-6: Individual set rep counts (may be empty; fall back to Col 2 parsing)
+  - Col 7: Notes (include as exercise notes if non-empty)
+
+Skip rows that are:
+- Day label rows (single cell: Mon, Tues, etc.)
+- Column header rows (containing words like "Weight", "Sets", "Rest", "Reps")
+- Section header rows ("Rehab Workout", "Medical Notes:", "Training Notes:", etc.)
+- Fully empty rows
+- Footer/notes rows at the bottom
+
+== SHORTHAND EXERCISE MATCHING ==
+Match shorthand names: "Bench"=bench press, "Squat"=squat, "DL"=deadlift, "OHP"=overhead press,
+"Chins"=chin-ups, "RDL"=romanian deadlift, "DB Bench"=dumbbell bench press, etc.
+
+== KNOWN EXERCISES IN THE DATABASE ==
 {exercises_list}
 
-When you recognize an exercise name, use the EXACT name from the database list above. If an exercise isn't in the list, use the name as written in the spreadsheet.
+Use the EXACT name from the list above when recognized. Otherwise use the name as written.
 
-OUTPUT FORMAT — you MUST return ONLY valid JSON with this exact structure (no markdown, no explanation, just JSON):
+== OUTPUT FORMAT ==
+Return ONLY valid JSON (no markdown, no explanation):
 {{
   "workouts": [
     {{
@@ -156,9 +221,9 @@ OUTPUT FORMAT — you MUST return ONLY valid JSON with this exact structure (no 
           "sets": [
             {{
               "set_number": 1,
-              "weight_lbs": 315,
-              "reps": 5,
-              "rpe": 8.0,
+              "weight_lbs": 25,
+              "reps": 25,
+              "rpe": null,
               "set_type": "working",
               "notes": null
             }}
@@ -170,17 +235,15 @@ OUTPUT FORMAT — you MUST return ONLY valid JSON with this exact structure (no 
   "warnings": ["any issues or assumptions you made"]
 }}
 
-RULES:
-- Group sets into workouts by date.
-- If weight appears to be in kg, convert to lbs (multiply by 2.20462). Add a warning noting the conversion.
-- set_type should be one of: "warmup", "working", "backoff", "amrap", "paused". Default to "working" if unclear.
-- RPE should be 5.0-10.0 scale. If not provided, omit it (null).
-- If you can identify bodyweight, sleep quality (1-5), or fatigue level (1-5), include them.
-- If dates are missing, try to infer them. If impossible, use "unknown" and add a warning.
-- Preserve the order of exercises as they appear in the spreadsheet.
-- If some data is ambiguous, make your best interpretation and add a warning explaining what you assumed.
-- Be CONCISE — omit null fields where possible to keep the JSON compact.
-- Return ONLY the JSON object. No markdown code fences, no explanation text."""
+== RULES ==
+- Create one workout per day. Group all exercises from that day into it.
+- Expand sets: "3 sets - 25reps ea" → 3 separate set objects (set_number 1, 2, 3) each with reps=25.
+- set_type: "working" by default; "warmup" for warm-up/stretch exercises.
+- RPE: null unless explicitly stated. Do NOT infer RPE.
+- Be GENEROUS: when in doubt, import the exercise with best-guess values and add a warning.
+- "Actual" column with "Y" = completed; include only those rows if present. If no "Actual" column, include all exercise rows.
+- Rep scheme "2 x 1" → 2 sets × 1 rep. Always expand into individual set objects.
+- Return ONLY the JSON object. No markdown fences."""
 
 
 async def _call_grok_import(system_prompt: str, user_message: str) -> str:
