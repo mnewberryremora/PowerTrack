@@ -220,7 +220,7 @@ export default function PRBoard() {
                                 color: '#f8fafc',
                                 fontSize: 12,
                               }}
-                              formatter={(value: number | undefined) => [value != null ? `${Math.round(value)} lbs` : '', 'e1RM']}
+                              formatter={(value) => [typeof value === 'number' ? `${Math.round(value)} lbs` : '', 'e1RM']}
                             />
                             <Line
                               type="monotone"
