@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import asyncio
 from app.core.security import get_current_admin
+from app.services.email_service import send_approval_notification
 from app.db import get_db
 from app.models.exercise import Exercise
 from app.models.workout import Workout, WorkoutExercise, Set
@@ -55,9 +57,12 @@ async def update_user_status(
         raise HTTPException(status_code=404, detail="User not found")
     if user.id == current_admin.id:
         raise HTTPException(status_code=400, detail="Cannot change your own status")
+    prev_status = user.status
     user.status = data.status
     await db.commit()
     await db.refresh(user)
+    if prev_status != data.status and data.status in ("approved", "denied"):
+        asyncio.create_task(send_approval_notification(user.email, data.status == "approved"))
     return user
 
 

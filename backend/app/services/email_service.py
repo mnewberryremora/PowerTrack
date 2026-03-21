@@ -11,6 +11,43 @@ SMTP_FROM = os.environ.get("SMTP_FROM", "noreply@powertrac.app")
 ADMIN_NOTIFY_EMAIL = os.environ.get("ADMIN_NOTIFY_EMAIL", "mnewberry@remoratechnical.com")
 
 
+async def send_approval_notification(user_email: str, approved: bool) -> None:
+    """Send email to user when their account is approved or denied."""
+    if not SMTP_HOST or not SMTP_USERNAME or not SMTP_PASSWORD:
+        return
+    try:
+        import aiosmtplib
+        from email.mime.text import MIMEText
+        if approved:
+            subject = "[PowerTrack] Your account has been approved"
+            body = (
+                "Your PowerTrack account has been approved.\n\n"
+                f"You can now log in at https://powertrack.remoratechnical.com\n\n"
+                "Welcome!"
+            )
+        else:
+            subject = "[PowerTrack] Your account request was not approved"
+            body = (
+                "Unfortunately your PowerTrack account request was not approved.\n\n"
+                "If you believe this is a mistake, please contact the administrator."
+            )
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = SMTP_FROM
+        msg["To"] = user_email
+        await aiosmtplib.send(
+            msg,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USERNAME,
+            password=SMTP_PASSWORD,
+            start_tls=True,
+        )
+        logger.info(f"Approval notification sent to {user_email}: approved={approved}")
+    except Exception as e:
+        logger.error(f"Failed to send approval notification: {e}")
+
+
 async def send_new_user_notification(user_email: str, display_name: str | None) -> None:
     """Send email to admin when a new user registers. Silently skips if SMTP not configured."""
     if not SMTP_HOST or not SMTP_USERNAME or not SMTP_PASSWORD:
