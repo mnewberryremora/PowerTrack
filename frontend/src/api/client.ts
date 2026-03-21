@@ -230,6 +230,8 @@ export const adminApi = {
     api.patch<AdminUser>(`/api/admin/users/${userId}/status`, { status }).then(r => r.data),
   toggleAdmin: (userId: number) =>
     api.patch<AdminUser>(`/api/admin/users/${userId}/admin`).then(r => r.data),
+  deleteUser: (userId: number) =>
+    api.delete(`/api/admin/users/${userId}`).then(r => r.data),
 }
 
 export default api

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, Users, Clock, CheckCircle, XCircle } from 'lucide-react'
+import { ShieldCheck, Users, Clock, CheckCircle, XCircle, Trash2 } from 'lucide-react'
 import { adminApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import type { AdminUser } from '../types'
@@ -55,6 +55,17 @@ export default function AdminDashboard() {
     mutationFn: (userId: number) => adminApi.toggleAdmin(userId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
   })
+
+  const deleteMutation = useMutation({
+    mutationFn: (userId: number) => adminApi.deleteUser(userId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
+  })
+
+  function handleDelete(u: AdminUser) {
+    if (window.confirm(`Permanently delete ${u.email}? This cannot be undone.`)) {
+      deleteMutation.mutate(u.id)
+    }
+  }
 
   const pendingUsers = (users ?? []).filter((u) => u.status === 'pending')
   const allUsers = users ?? []
@@ -273,6 +284,14 @@ export default function AdminDashboard() {
                             className="px-2 py-1 rounded text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
                           >
                             {u.is_admin ? 'Remove Admin' : 'Make Admin'}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(u)}
+                            disabled={deleteMutation.isPending}
+                            className="px-2 py-1 rounded text-xs font-medium bg-danger/10 text-danger hover:bg-danger/20 transition-colors disabled:opacity-50"
+                            title="Delete user"
+                          >
+                            <Trash2 size={12} />
                           </button>
                         </div>
                       </td>
