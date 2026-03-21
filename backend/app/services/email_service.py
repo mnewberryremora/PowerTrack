@@ -1,77 +1,67 @@
 import logging
 import os
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
-SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", "noreply@powertrac.app")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+FROM_EMAIL = os.environ.get("SMTP_FROM", "noreply@remoratechnical.com")
 ADMIN_NOTIFY_EMAIL = os.environ.get("ADMIN_NOTIFY_EMAIL", "mnewberry@remoratechnical.com")
 
 
-async def send_approval_notification(user_email: str, approved: bool) -> None:
-    """Send email to user when their account is approved or denied."""
-    if not SMTP_HOST or not SMTP_USERNAME or not SMTP_PASSWORD:
+async def _send(to: str, subject: str, body: str) -> None:
+    """Send an email via Resend HTTP API."""
+    if not RESEND_API_KEY:
+        logger.info("RESEND_API_KEY not configured, skipping email")
         return
     try:
-        import aiosmtplib
-        from email.mime.text import MIMEText
-        if approved:
-            subject = "[PowerTrack] Your account has been approved"
-            body = (
-                "Your PowerTrack account has been approved.\n\n"
-                f"You can now log in at https://powertrack.remoratechnical.com\n\n"
-                "Welcome!"
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+                json={"from": FROM_EMAIL, "to": [to], "subject": subject, "text": body},
+                timeout=10,
             )
-        else:
-            subject = "[PowerTrack] Your account request was not approved"
-            body = (
-                "Unfortunately your PowerTrack account request was not approved.\n\n"
-                "If you believe this is a mistake, please contact the administrator."
-            )
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = SMTP_FROM
-        msg["To"] = user_email
-        await aiosmtplib.send(
-            msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_USERNAME,
-            password=SMTP_PASSWORD,
-            start_tls=True,
-        )
-        logger.info(f"Approval notification sent to {user_email}: approved={approved}")
+            resp.raise_for_status()
+            logger.info(f"Email sent to {to}: {subject}")
     except Exception as e:
-        logger.error(f"Failed to send approval notification: {e}")
+        logger.error(f"Failed to send email to {to}: {e}")
 
 
 async def send_new_user_notification(user_email: str, display_name: str | None) -> None:
-    """Send email to admin when a new user registers. Silently skips if SMTP not configured."""
-    if not SMTP_HOST or not SMTP_USERNAME or not SMTP_PASSWORD:
-        logger.info("SMTP not configured, skipping admin notification email")
-        return
-    try:
-        import aiosmtplib
-        from email.mime.text import MIMEText
-        name_part = f" ({display_name})" if display_name else ""
-        msg = MIMEText(
-            f"New user registration pending approval:\n\nEmail: {user_email}{name_part}\n\n"
-            f"Log in to your admin dashboard to approve or deny this account."
+    """Notify admin when a new user registers."""
+    name_part = f" ({display_name})" if display_name else ""
+    await _send(
+        to=ADMIN_NOTIFY_EMAIL,
+        subject=f"[PowerTrack] New user pending approval: {user_email}",
+        body=(
+            f"New user registration pending approval:\n\n"
+            f"Email: {user_email}{name_part}\n\n"
+            f"Log in to your admin dashboard to approve or deny this account.\n"
+            f"https://powertrack.remoratechnical.com/admin"
+        ),
+    )
+
+
+async def send_approval_notification(user_email: str, approved: bool) -> None:
+    """Notify user when their account is approved or denied."""
+    if approved:
+        await _send(
+            to=user_email,
+            subject="[PowerTrack] Your account has been approved",
+            body=(
+                "Your PowerTrack account has been approved.\n\n"
+                "You can now log in at https://powertrack.remoratechnical.com\n\n"
+                "Welcome!"
+            ),
         )
-        msg["Subject"] = f"[PowerTrack] New user pending approval: {user_email}"
-        msg["From"] = SMTP_FROM
-        msg["To"] = ADMIN_NOTIFY_EMAIL
-        await aiosmtplib.send(
-            msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_USERNAME,
-            password=SMTP_PASSWORD,
-            start_tls=True,
+    else:
+        await _send(
+            to=user_email,
+            subject="[PowerTrack] Your account request was not approved",
+            body=(
+                "Unfortunately your PowerTrack account request was not approved.\n\n"
+                "If you believe this is a mistake, please contact the administrator."
+            ),
         )
-        logger.info(f"Admin notification sent for new user: {user_email}")
-    except Exception as e:
-        logger.error(f"Failed to send admin notification email: {e}")
