@@ -221,17 +221,20 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
 
     data.sort(key=lambda x: x["date"])
 
+    # Pick the most recent bodyweight between body metrics and workouts (by date)
     latest_bw: float | None = None
+    latest_bw_date: str | None = None
     if metrics and metrics[-1].bodyweight_lbs:
         latest_bw = float(metrics[-1].bodyweight_lbs)
+        latest_bw_date = str(metrics[-1].date)
     bw_row = (await db.execute(
-        select(Workout.bodyweight_lbs)
+        select(Workout.bodyweight_lbs, Workout.date)
         .where(Workout.user_id == user_id, Workout.bodyweight_lbs.isnot(None))
         .order_by(desc(Workout.date))
         .limit(1)
-    )).scalar()
-    if bw_row:
-        latest_bw = float(bw_row)
+    )).first()
+    if bw_row and (latest_bw_date is None or str(bw_row.date) >= latest_bw_date):
+        latest_bw = float(bw_row.bodyweight_lbs)
 
     if latest_bw:
         current_total = 0.0
