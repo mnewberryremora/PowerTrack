@@ -183,10 +183,23 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
             seen_dates.add(date_str)
             data.append({"date": date_str, "dots": dots, "bodyweight_lbs": float(bm.bodyweight_lbs), "total_lbs": total_lbs})
 
+    # Build a sorted list of (date_str, bodyweight_lbs) from body metrics for lookups
+    bm_bw_by_date = [(str(bm.date), float(bm.bodyweight_lbs)) for bm in metrics if bm.bodyweight_lbs]
+
+    def nearest_bm_bw(workout_date_str: str) -> float | None:
+        """Return the most recent body metric bodyweight on or before the given date."""
+        result = None
+        for d, bw in bm_bw_by_date:
+            if d <= workout_date_str:
+                result = bw
+            else:
+                break
+        return result
+
     comp_id_set = set(comp_ids)
     workout_result = await db.execute(
         select(Workout)
-        .where(and_(Workout.user_id == user_id, Workout.completed.is_(True), Workout.bodyweight_lbs.isnot(None)))
+        .where(and_(Workout.user_id == user_id, Workout.completed.is_(True)))
         .order_by(Workout.date)
     )
     for w in workout_result.scalars().all():
@@ -198,6 +211,9 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
         )
         workout_ex_ids = {row[0] for row in we_result.all()}
         if not comp_id_set.issubset(workout_ex_ids):
+            continue
+        bw = nearest_bm_bw(date_str)
+        if not bw:
             continue
         total_lbs = 0.0
         for ex_id in comp_ids:
@@ -214,10 +230,9 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
             if best:
                 total_lbs += float(best)
         if total_lbs > 0:
-            bw_kg = lbs_to_kg(float(w.bodyweight_lbs))
-            dots = calculate_dots(lbs_to_kg(total_lbs), bw_kg)
+            dots = calculate_dots(lbs_to_kg(total_lbs), lbs_to_kg(bw))
             seen_dates.add(date_str)
-            data.append({"date": date_str, "dots": dots, "bodyweight_lbs": float(w.bodyweight_lbs), "total_lbs": total_lbs})
+            data.append({"date": date_str, "dots": dots, "bodyweight_lbs": bw, "total_lbs": total_lbs})
 
     data.sort(key=lambda x: x["date"])
 
@@ -233,10 +248,16 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
     if latest_bw:
         current_total = 0.0
         for ex_id in comp_ids:
+            # Prefer actual 1RM; fall back to best e1RM from any rep count
             best = (await db.execute(
                 select(func.max(PersonalRecord.weight_lbs))
                 .where(and_(PersonalRecord.user_id == user_id, PersonalRecord.exercise_id == ex_id, PersonalRecord.rep_count == 1))
             )).scalar()
+            if not best:
+                best = (await db.execute(
+                    select(func.max(PersonalRecord.e1rm_lbs))
+                    .where(and_(PersonalRecord.user_id == user_id, PersonalRecord.exercise_id == ex_id))
+                )).scalar()
             if best:
                 current_total += float(best)
         if current_total > 0:
