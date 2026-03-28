@@ -3,8 +3,8 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import { Trophy, Award, Filter, TrendingUp, RefreshCw } from 'lucide-react'
-import { prs, exercises as exercisesApi, analytics } from '../api/client'
+import { Trophy, Award, Filter, TrendingUp, RefreshCw, Zap } from 'lucide-react'
+import { prs, exercises as exercisesApi, analytics, bodyMetrics } from '../api/client'
 import type { PR, Exercise } from '../types'
 import { formatDate, daysSince } from '../utils/date'
 
@@ -107,6 +107,23 @@ export default function PRBoard() {
 
   const filteredRows = compOnly ? rows.filter((r) => r.isCompetition) : rows
 
+  const dotsQuery = useQuery<{ data: Array<{ date: string; dots: number; bodyweight_lbs: number; total_lbs: number }> }>({
+    queryKey: ['analytics', 'dots'],
+    queryFn: () => analytics.dots() as Promise<{ data: Array<{ date: string; dots: number; bodyweight_lbs: number; total_lbs: number }> }>,
+  })
+
+  const latestBwQuery = useQuery({
+    queryKey: ['bodyMetrics', 'latest'],
+    queryFn: () => bodyMetrics.latest(),
+  })
+
+  const currentDots = useMemo(() => {
+    const history = dotsQuery.data?.data ?? []
+    return history.length > 0 ? history[history.length - 1] : null
+  }, [dotsQuery.data])
+
+  const compRows = useMemo(() => rows.filter((r) => r.isCompetition), [rows])
+
   const isLoading = prQuery.isLoading || exQuery.isLoading
 
   return (
@@ -164,6 +181,64 @@ export default function PRBoard() {
 
       {!isLoading && (
         <>
+          {/* DOTS Score Card */}
+          {(currentDots || compRows.length > 0) && (
+            <div className="bg-surface rounded-xl border border-primary/20 p-5">
+              <h2 className="text-lg font-semibold text-text mb-4 flex items-center gap-2">
+                <Zap size={18} className="text-accent" /> Current DOTS Score
+              </h2>
+              <div className="flex flex-wrap gap-6 items-center">
+                <div className="text-center">
+                  <p className="text-5xl font-bold text-accent">
+                    {currentDots ? Math.round(currentDots.dots) : '--'}
+                  </p>
+                  <p className="text-text-muted text-xs mt-1">DOTS</p>
+                </div>
+                <div className="h-12 w-px bg-surface-light hidden sm:block" />
+                <div className="flex gap-6 flex-wrap">
+                  {compRows.map((r) => (
+                    <div key={r.exerciseId} className="text-center">
+                      <p className="text-xl font-bold text-text">
+                        {r.bestE1RM != null ? `${Math.round(r.bestE1RM)}` : '--'}
+                        <span className="text-sm font-normal text-text-muted ml-1">lbs</span>
+                      </p>
+                      <p className="text-text-muted text-xs mt-0.5">
+                        {r.exerciseName.replace('Competition ', '')} e1RM
+                      </p>
+                    </div>
+                  ))}
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-text">
+                      {currentDots
+                        ? `${Math.round(currentDots.total_lbs)}`
+                        : compRows.length > 0
+                        ? `${Math.round(compRows.reduce((s, r) => s + (r.bestE1RM ?? 0), 0))}`
+                        : '--'}
+                      <span className="text-sm font-normal text-text-muted ml-1">lbs</span>
+                    </p>
+                    <p className="text-text-muted text-xs mt-0.5">Total (S+B+D)</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-text">
+                      {currentDots
+                        ? `${currentDots.bodyweight_lbs}`
+                        : latestBwQuery.data
+                        ? `${latestBwQuery.data.bodyweight_lbs}`
+                        : '--'}
+                      <span className="text-sm font-normal text-text-muted ml-1">lbs</span>
+                    </p>
+                    <p className="text-text-muted text-xs mt-0.5">Bodyweight</p>
+                  </div>
+                </div>
+              </div>
+              {!currentDots && compRows.length > 0 && (
+                <p className="text-text-muted text-xs mt-3">
+                  DOTS requires a 1RM for each competition lift and a logged bodyweight on the same date.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* e1RM Progression Charts for competition lifts */}
           {showCharts && compExercises.length > 0 && (
             <div className="bg-surface rounded-xl border border-surface-light p-5">

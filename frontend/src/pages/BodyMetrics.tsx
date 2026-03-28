@@ -86,13 +86,21 @@ export default function BodyMetrics() {
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   )
 
-  const chartData = sorted.map((m) => ({
-    date: m.date.slice(5),
-    weight: m.bodyweight_lbs,
-    bf: m.body_fat_pct ?? null,
-  }))
+  const chartData = sorted.map((m) => {
+    const lbm =
+      m.bodyweight_lbs != null && m.body_fat_pct != null
+        ? Math.round(m.bodyweight_lbs * (1 - m.body_fat_pct / 100) * 10) / 10
+        : null
+    return {
+      date: m.date.slice(5),
+      weight: m.bodyweight_lbs,
+      bf: m.body_fat_pct ?? null,
+      lbm,
+    }
+  })
 
   const hasBf = chartData.some((d) => d.bf !== null)
+  const hasLbm = chartData.some((d) => d.lbm !== null)
 
   const recentEntries = [...sorted].reverse().slice(0, 20)
 
@@ -264,6 +272,18 @@ export default function BodyMetrics() {
                       name="Body Fat %"
                     />
                   )}
+                  {hasLbm && (
+                    <Line
+                      yAxisId="weight"
+                      type="monotone"
+                      dataKey="lbm"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#10b981' }}
+                      connectNulls
+                      name="Lean Mass (lbs)"
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -283,6 +303,7 @@ export default function BodyMetrics() {
                     <th className="px-4 py-2 font-medium">Date</th>
                     <th className="px-4 py-2 font-medium">Weight (lbs)</th>
                     <th className="px-4 py-2 font-medium">Body Fat %</th>
+                    <th className="px-4 py-2 font-medium">Lean Mass (lbs)</th>
                     <th className="px-4 py-2 font-medium">Notes</th>
                     <th className="px-4 py-2 w-20"></th>
                   </tr>
@@ -297,6 +318,11 @@ export default function BodyMetrics() {
                       <td className="px-4 py-3 text-text font-medium">{m.bodyweight_lbs}</td>
                       <td className="px-4 py-3 text-text-muted">
                         {m.body_fat_pct != null ? `${m.body_fat_pct}%` : '--'}
+                      </td>
+                      <td className="px-4 py-3 text-text-muted">
+                        {m.bodyweight_lbs != null && m.body_fat_pct != null
+                          ? `${Math.round(m.bodyweight_lbs * (1 - m.body_fat_pct / 100) * 10) / 10}`
+                          : '--'}
                       </td>
                       <td className="px-4 py-3 text-text-muted">{m.notes || '--'}</td>
                       <td className="px-4 py-3">
