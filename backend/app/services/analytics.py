@@ -221,20 +221,14 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
 
     data.sort(key=lambda x: x["date"])
 
-    # Pick the most recent bodyweight between body metrics and workouts (by date)
+    # Use only body metrics bodyweight for the "current" data point — workout
+    # bodyweight is per-session and unreliable for DOTS (could be lean mass, weigh-in, etc.)
     latest_bw: float | None = None
-    latest_bw_date: str | None = None
-    if metrics and metrics[-1].bodyweight_lbs:
-        latest_bw = float(metrics[-1].bodyweight_lbs)
-        latest_bw_date = str(metrics[-1].date)
-    bw_row = (await db.execute(
-        select(Workout.bodyweight_lbs, Workout.date)
-        .where(Workout.user_id == user_id, Workout.bodyweight_lbs.isnot(None))
-        .order_by(desc(Workout.date))
-        .limit(1)
-    )).first()
-    if bw_row and (latest_bw_date is None or str(bw_row.date) >= latest_bw_date):
-        latest_bw = float(bw_row.bodyweight_lbs)
+    if metrics:
+        for bm in reversed(metrics):
+            if bm.bodyweight_lbs:
+                latest_bw = float(bm.bodyweight_lbs)
+                break
 
     if latest_bw:
         current_total = 0.0
@@ -248,7 +242,10 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
         if current_total > 0:
             dots = calculate_dots(lbs_to_kg(current_total), lbs_to_kg(latest_bw))
             today_str = str(date.today())
-            if not data or data[-1]["date"] != today_str:
+            # Always update/replace the current entry so it reflects latest BW + best PRs
+            if data and data[-1].get("is_current"):
+                data[-1] = {"date": today_str, "dots": dots, "bodyweight_lbs": latest_bw, "total_lbs": current_total, "is_current": True}
+            else:
                 data.append({"date": today_str, "dots": dots, "bodyweight_lbs": latest_bw, "total_lbs": current_total, "is_current": True})
 
     return data
