@@ -248,18 +248,30 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
     if latest_bw:
         current_total = 0.0
         for ex_id in comp_ids:
-            # Prefer actual 1RM; fall back to best e1RM from any rep count
-            best = (await db.execute(
-                select(func.max(PersonalRecord.weight_lbs))
-                .where(and_(PersonalRecord.user_id == user_id, PersonalRecord.exercise_id == ex_id, PersonalRecord.rep_count == 1))
+            # Use most recent single-rep working set (not all-time best, which may be stale)
+            recent_1rm = (await db.execute(
+                select(Set.weight_lbs)
+                .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+                .join(Workout, WorkoutExercise.workout_id == Workout.id)
+                .where(and_(
+                    Workout.user_id == user_id,
+                    WorkoutExercise.exercise_id == ex_id,
+                    Set.reps == 1,
+                    Set.set_type != "warmup",
+                ))
+                .order_by(desc(Workout.date))
+                .limit(1)
             )).scalar()
-            if not best:
+            if recent_1rm:
+                current_total += float(recent_1rm)
+            else:
+                # Fall back to best e1RM if no single-rep sets exist
                 best = (await db.execute(
                     select(func.max(PersonalRecord.e1rm_lbs))
                     .where(and_(PersonalRecord.user_id == user_id, PersonalRecord.exercise_id == ex_id))
                 )).scalar()
-            if best:
-                current_total += float(best)
+                if best:
+                    current_total += float(best)
         if current_total > 0:
             dots = calculate_dots(lbs_to_kg(current_total), lbs_to_kg(latest_bw))
             today_str = str(date.today())
