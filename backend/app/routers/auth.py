@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -6,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, hash_password, verify_password, get_current_user
 from app.db import get_db
+from app.models.invite import Invite
 from app.models.user import User
 from app.schemas.auth import RegisterResponse, Token, UserLogin, UserOut, UserRegister
 from app.services.email_service import send_new_user_notification
@@ -19,19 +21,38 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
+    # Check invite token
+    invite = None
+    if data.invite_token:
+        result = await db.execute(select(Invite).where(Invite.token == data.invite_token))
+        invite = result.scalar_one_or_none()
+        if not invite or not invite.is_active:
+            raise HTTPException(status_code=400, detail="Invalid or expired invite link")
+        if invite.expires_at and invite.expires_at < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="This invite link has expired")
+        if invite.max_uses and invite.use_count >= invite.max_uses:
+            raise HTTPException(status_code=400, detail="This invite link has reached its usage limit")
+
+    auto_approve = invite is not None
     user = User(
         email=data.email,
         hashed_password=hash_password(data.password),
         display_name=data.display_name,
-        status="pending",
+        status="approved" if auto_approve else "pending",
     )
     db.add(user)
+
+    if invite:
+        invite.use_count += 1
+
     await db.commit()
     await db.refresh(user)
 
-    asyncio.create_task(send_new_user_notification(user.email, user.display_name))
+    if not auto_approve:
+        asyncio.create_task(send_new_user_notification(user.email, user.display_name))
 
-    return RegisterResponse(message="Registration successful. Your account is pending admin approval.")
+    msg = "Registration successful! You can now log in." if auto_approve else "Registration successful. Your account is pending admin approval."
+    return RegisterResponse(message=msg)
 
 
 @router.post("/login", response_model=Token)

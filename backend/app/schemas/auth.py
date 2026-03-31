@@ -7,6 +7,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     display_name: str | None = None
+    invite_token: str | None = None
 
     @field_validator("password")
     @classmethod

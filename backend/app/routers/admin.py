@@ -1,3 +1,4 @@
+import secrets
 from datetime import date, datetime
 from typing import Any
 
@@ -11,6 +12,7 @@ from app.core.security import get_current_admin
 from app.services.email_service import send_approval_notification
 from app.db import get_db
 from app.models.exercise import Exercise
+from app.models.invite import Invite
 from app.models.workout import Workout, WorkoutExercise, Set
 from app.models.body_metric import BodyMetric
 from app.models.meet import Meet
@@ -98,6 +100,72 @@ async def toggle_admin(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+# ── Invite Links ──
+
+class InviteCreate(BaseModel):
+    label: str | None = None
+    max_uses: int | None = None
+    expires_in_days: int | None = None
+
+
+class InviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    token: str
+    label: str | None
+    max_uses: int | None
+    use_count: int
+    expires_at: datetime | None
+    is_active: bool
+    created_at: datetime
+
+
+@router.post("/invites", response_model=InviteOut, status_code=201)
+async def create_invite(
+    data: InviteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    from datetime import timedelta
+    expires_at = None
+    if data.expires_in_days:
+        expires_at = datetime.utcnow() + timedelta(days=data.expires_in_days)
+    invite = Invite(
+        token=secrets.token_urlsafe(32),
+        label=data.label,
+        created_by=current_admin.id,
+        max_uses=data.max_uses,
+        expires_at=expires_at,
+    )
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+    return invite
+
+
+@router.get("/invites", response_model=list[InviteOut])
+async def list_invites(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(Invite).order_by(Invite.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.delete("/invites/{invite_id}", status_code=204)
+async def revoke_invite(
+    invite_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(Invite).where(Invite.id == invite_id))
+    invite = result.scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    invite.is_active = False
+    await db.commit()
 
 
 # ── Data Migration Import ──

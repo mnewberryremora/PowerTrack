@@ -2,12 +2,12 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, Users, Clock, CheckCircle, XCircle, Trash2 } from 'lucide-react'
+import { ShieldCheck, Users, Clock, CheckCircle, XCircle, Trash2, LinkIcon, Copy, Plus } from 'lucide-react'
 import { adminApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import type { AdminUser } from '../types'
+import type { AdminUser, Invite } from '../types'
 
-type AdminTab = 'pending' | 'all'
+type AdminTab = 'pending' | 'all' | 'invites'
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -61,6 +61,47 @@ export default function AdminDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
   })
 
+  // Invites
+  const invitesQuery = useQuery<Invite[]>({
+    queryKey: ['admin-invites'],
+    queryFn: () => adminApi.listInvites(),
+    enabled: Boolean(user?.is_admin),
+  })
+
+  const createInviteMutation = useMutation({
+    mutationFn: (data: { label?: string; max_uses?: number; expires_in_days?: number }) =>
+      adminApi.createInvite(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-invites'] }),
+  })
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: (id: number) => adminApi.revokeInvite(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-invites'] }),
+  })
+
+  const [inviteLabel, setInviteLabel] = useState('')
+  const [inviteMaxUses, setInviteMaxUses] = useState<number | ''>('')
+  const [inviteExpires, setInviteExpires] = useState<number | ''>('')
+  const [copiedId, setCopiedId] = useState<number | null>(null)
+
+  function handleCreateInvite() {
+    createInviteMutation.mutate({
+      label: inviteLabel || undefined,
+      max_uses: inviteMaxUses || undefined,
+      expires_in_days: inviteExpires || undefined,
+    })
+    setInviteLabel('')
+    setInviteMaxUses('')
+    setInviteExpires('')
+  }
+
+  function copyInviteLink(invite: Invite) {
+    const url = `${window.location.origin}/register?invite=${invite.token}`
+    navigator.clipboard.writeText(url)
+    setCopiedId(invite.id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
   function handleDelete(u: AdminUser) {
     if (window.confirm(`Permanently delete ${u.email}? This cannot be undone.`)) {
       deleteMutation.mutate(u.id)
@@ -80,6 +121,7 @@ export default function AdminDashboard() {
   const tabs: { key: AdminTab; label: string; count?: number }[] = [
     { key: 'pending', label: 'Pending Approval', count: pendingUsers.length },
     { key: 'all', label: 'All Users', count: allUsers.length },
+    { key: 'invites', label: 'Invite Links', count: (invitesQuery.data ?? []).filter((i: Invite) => i.is_active).length },
   ]
 
   return (
@@ -299,6 +341,126 @@ export default function AdminDashboard() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Invite Links Tab */}
+      {!isLoading && !isError && activeTab === 'invites' && (
+        <>
+          {/* Create invite form */}
+          <div className="bg-surface rounded-xl border border-surface-light p-5 space-y-4">
+            <h2 className="text-text font-semibold flex items-center gap-2">
+              <Plus size={16} /> Create Invite Link
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="text-text-muted text-sm font-medium block mb-1">Label</label>
+                <input
+                  type="text"
+                  value={inviteLabel}
+                  onChange={(e) => setInviteLabel(e.target.value)}
+                  placeholder="e.g. For John"
+                  className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-text-muted text-sm font-medium block mb-1">Max Uses</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={inviteMaxUses}
+                  onChange={(e) => setInviteMaxUses(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="Unlimited"
+                  className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-text-muted text-sm font-medium block mb-1">Expires In (days)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={inviteExpires}
+                  onChange={(e) => setInviteExpires(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="Never"
+                  className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
+                />
+              </div>
+              <button
+                onClick={handleCreateInvite}
+                disabled={createInviteMutation.isPending}
+                className="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {createInviteMutation.isPending ? 'Creating...' : 'Generate Link'}
+              </button>
+            </div>
+          </div>
+
+          {/* Invite list */}
+          {invitesQuery.isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (invitesQuery.data ?? []).length === 0 ? (
+            <div className="text-center py-16">
+              <LinkIcon size={48} className="mx-auto text-text-muted mb-4" />
+              <p className="text-text-muted text-lg">No invite links yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(invitesQuery.data ?? []).map((inv) => (
+                <div
+                  key={inv.id}
+                  className={`bg-surface rounded-xl border p-4 flex items-center justify-between flex-wrap gap-4 ${
+                    inv.is_active ? 'border-surface-light' : 'border-surface-light/50 opacity-60'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="text-text font-medium">
+                        {inv.label || 'Unnamed invite'}
+                      </p>
+                      {!inv.is_active && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/20 text-red-400">
+                          Revoked
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-text-muted text-xs">
+                      <span>Uses: {inv.use_count}{inv.max_uses ? ` / ${inv.max_uses}` : ''}</span>
+                      <span>
+                        {inv.expires_at
+                          ? `Expires: ${new Date(inv.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          : 'No expiry'}
+                      </span>
+                      <span>
+                        Created: {new Date(inv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {inv.is_active && (
+                      <>
+                        <button
+                          onClick={() => copyInviteLink(inv)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                        >
+                          <Copy size={14} />
+                          {copiedId === inv.id ? 'Copied!' : 'Copy Link'}
+                        </button>
+                        <button
+                          onClick={() => revokeInviteMutation.mutate(inv.id)}
+                          disabled={revokeInviteMutation.isPending}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                        >
+                          <XCircle size={14} /> Revoke
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </>

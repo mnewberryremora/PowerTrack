@@ -8,6 +8,7 @@ from app.models.program import Program
 from app.models.ai_conversation import AIConversation
 from app.models.user_prefs import UserPreferences
 from app.models.endurance import EnduranceActivity
+from app.models.invite import Invite
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "AIConversation",
     "UserPreferences",
     "EnduranceActivity",
+    "Invite",
 ]

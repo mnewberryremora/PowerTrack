@@ -11,7 +11,7 @@ import type {
   AnalyticsSummary,
   ImportConfirmRequest,
   AuthToken, LoginRequest, RegisterRequest, AuthUser,
-  EnduranceActivity, EnduranceCreate, AdminUser,
+  EnduranceActivity, EnduranceCreate, AdminUser, Invite,
 } from '../types'
 
 const TOKEN_KEY = 'auth_token'
@@ -232,6 +232,12 @@ export const adminApi = {
     api.patch<AdminUser>(`/api/admin/users/${userId}/admin`).then(r => r.data),
   deleteUser: (userId: number) =>
     api.delete(`/api/admin/users/${userId}`).then(r => r.data),
+  createInvite: (data: { label?: string; max_uses?: number; expires_in_days?: number }) =>
+    api.post<Invite>('/api/admin/invites', data).then(r => r.data),
+  listInvites: () =>
+    api.get<Invite[]>('/api/admin/invites').then(r => r.data),
+  revokeInvite: (inviteId: number) =>
+    api.delete(`/api/admin/invites/${inviteId}`).then(r => r.data),
 }
 
 export default api

@@ -1,28 +1,36 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Dumbbell } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Register() {
   const { register } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const inviteToken = searchParams.get('invite') ?? undefined
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setSuccess(null)
     if (password.length < 8) {
       setError('Password must be at least 8 characters.')
       return
     }
     setLoading(true)
     try {
-      await register(email, password, displayName || undefined)
-      navigate('/', { replace: true })
+      const result = await register(email, password, displayName || undefined, inviteToken)
+      if (result?.message) {
+        setSuccess(result.message)
+      } else {
+        navigate('/', { replace: true })
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Registration failed.')
     } finally {
@@ -41,6 +49,19 @@ export default function Register() {
           <p className="text-text-muted text-sm">Create your account</p>
         </div>
 
+        {success ? (
+          <div className="bg-surface border border-surface-light rounded-xl p-6 space-y-4">
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-green-400 text-sm">
+              {success}
+            </div>
+            <Link
+              to="/login"
+              className="block w-full text-center bg-primary hover:bg-primary-dark text-white font-medium py-2.5 rounded-lg transition-colors"
+            >
+              Go to Login
+            </Link>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="bg-surface border border-surface-light rounded-xl p-6 space-y-4">
           {error && (
             <div className="bg-danger/10 border border-danger/30 rounded-lg p-3 text-danger text-sm">
@@ -92,6 +113,7 @@ export default function Register() {
             {loading ? 'Creating account…' : 'Create Account'}
           </button>
         </form>
+        )}
 
         <p className="text-center text-sm text-text-muted">
           Already have an account?{' '}

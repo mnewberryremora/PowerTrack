@@ -25,6 +25,7 @@ export interface RegisterRequest {
   email: string
   password: string
   display_name?: string
+  invite_token?: string
 }
 
 // ── Exercises ──
@@ -269,6 +270,19 @@ export interface UserPreferencesUpdate {
   preferred_exercises?: Record<string, unknown>
   meet_weight_class_kg?: number
   notes?: string
+}
+
+// ── Invites ──
+
+export interface Invite {
+  id: number
+  token: string
+  label: string | null
+  max_uses: number | null
+  use_count: number
+  expires_at: string | null
+  is_active: boolean
+  created_at: string
 }
 
 // ── Import ──
