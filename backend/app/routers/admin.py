@@ -136,7 +136,7 @@ async def create_invite(
         token=secrets.token_urlsafe(32),
         label=data.label,
         created_by=current_admin.id,
-        max_uses=data.max_uses,
+        max_uses=data.max_uses if data.max_uses is not None else 1,
         expires_at=expires_at,
     )
     db.add(invite)

@@ -372,7 +372,7 @@ export default function AdminDashboard() {
                   min="1"
                   value={inviteMaxUses}
                   onChange={(e) => setInviteMaxUses(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="Unlimited"
+                  placeholder="1 (default)"
                   className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
                 />
               </div>
