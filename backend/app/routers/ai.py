@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, desc
@@ -34,6 +36,7 @@ class ConversationOut(BaseModel):
     context_snapshot: dict | None = None
     accepted: bool | None = None
     user_override_notes: str | None = None
+    created_at: datetime | None = None
 
 
 class ConversationUpdate(BaseModel):
