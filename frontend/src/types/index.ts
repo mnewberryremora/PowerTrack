@@ -383,6 +383,8 @@ export interface AdminUser {
   is_admin: boolean
   is_active: boolean
   created_at: string
+  ai_tokens_used: number
+  ai_token_limit: number | null
 }
 
 // ── Analytics ──

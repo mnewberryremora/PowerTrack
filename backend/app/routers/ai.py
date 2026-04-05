@@ -9,7 +9,8 @@ from app.core.security import get_current_user
 from app.db import get_db
 from app.models.ai_conversation import AIConversation
 from app.models.user import User
-from app.services.ai_coach import ask_coach
+from app.config import settings
+from app.services.ai_coach import ask_coach, _check_and_reset_monthly
 from app.services.ai_xlsx_import import ai_parse_xlsx
 
 # ---------- Request / response schemas ----------
@@ -60,7 +61,10 @@ async def ask_ai(
             db, data.context_type, data.message, user_id=current_user.id
         )
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        detail = str(e)
+        if "token limit" in detail.lower():
+            raise HTTPException(status_code=429, detail=detail)
+        raise HTTPException(status_code=503, detail=detail)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
 
@@ -96,7 +100,10 @@ async def analyze_training(
             db, "training_analysis", message, user_id=current_user.id
         )
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        detail = str(e)
+        if "token limit" in detail.lower():
+            raise HTTPException(status_code=429, detail=detail)
+        raise HTTPException(status_code=503, detail=detail)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
 
@@ -126,7 +133,10 @@ async def meet_prep(
             db, "meet_prep", message, user_id=current_user.id, extra={"meet_id": meet_id}
         )
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        detail = str(e)
+        if "token limit" in detail.lower():
+            raise HTTPException(status_code=429, detail=detail)
+        raise HTTPException(status_code=503, detail=detail)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
 
@@ -156,6 +166,21 @@ async def list_conversations(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/budget")
+async def get_ai_budget(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _check_and_reset_monthly(current_user)
+    await db.commit()
+    limit = current_user.ai_token_limit if current_user.ai_token_limit is not None else settings.ai_monthly_token_limit
+    return {
+        "tokens_used": current_user.ai_tokens_used,
+        "token_limit": limit,
+        "remaining": max(0, limit - current_user.ai_tokens_used),
+    }
 
 
 @router.put("/conversations/{conversation_id}", response_model=ConversationOut)

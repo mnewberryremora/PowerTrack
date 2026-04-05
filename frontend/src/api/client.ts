@@ -238,6 +238,8 @@ export const adminApi = {
     api.get<Invite[]>('/api/admin/invites').then(r => r.data),
   revokeInvite: (inviteId: number) =>
     api.delete(`/api/admin/invites/${inviteId}`).then(r => r.data),
+  setTokenLimit: (userId: number, limit: number | null) =>
+    api.patch<AdminUser>(`/api/admin/users/${userId}/token-limit`, { ai_token_limit: limit }).then(r => r.data),
 }
 
 export default api

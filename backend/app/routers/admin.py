@@ -32,6 +32,8 @@ class UserAdminOut(BaseModel):
     is_admin: bool
     is_active: bool
     created_at: datetime
+    ai_tokens_used: int = 0
+    ai_token_limit: int | None = None
 
 
 class StatusUpdate(BaseModel):
@@ -97,6 +99,27 @@ async def toggle_admin(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_admin = not user.is_admin
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+class TokenLimitUpdate(BaseModel):
+    ai_token_limit: int | None = None  # None = use global default
+
+
+@router.patch("/users/{user_id}/token-limit", response_model=UserAdminOut)
+async def set_user_token_limit(
+    user_id: int,
+    data: TokenLimitUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.ai_token_limit = data.ai_token_limit
     await db.commit()
     await db.refresh(user)
     return user

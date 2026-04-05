@@ -277,8 +277,8 @@ Rules:
     return prompt
 
 
-async def call_grok(system_prompt: str, user_message: str) -> str:
-    """Call the xAI/Grok API."""
+async def call_grok(system_prompt: str, user_message: str) -> tuple[str, int]:
+    """Call the xAI/Grok API. Returns (response_text, total_tokens_used)."""
     if not settings.xai_api_key:
         raise ValueError("XAI_API_KEY not configured")
 
@@ -301,7 +301,41 @@ async def call_grok(system_prompt: str, user_message: str) -> str:
         )
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return content, tokens
+
+
+def _check_and_reset_monthly(user: "User") -> None:
+    """Reset token counter if we've entered a new month."""
+    from datetime import datetime
+    now = datetime.utcnow()
+    if user.ai_tokens_reset_at is None or user.ai_tokens_reset_at.month != now.month or user.ai_tokens_reset_at.year != now.year:
+        user.ai_tokens_used = 0
+        user.ai_tokens_reset_at = now
+
+
+async def check_ai_budget(db: AsyncSession, user_id: int) -> tuple[int, int]:
+    """Check remaining AI budget. Returns (tokens_used, token_limit). Raises ValueError if over limit."""
+    from app.models.user import User
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one()
+    _check_and_reset_monthly(user)
+    limit = user.ai_token_limit if user.ai_token_limit is not None else settings.ai_monthly_token_limit
+    if limit > 0 and user.ai_tokens_used >= limit:
+        raise ValueError(f"Monthly AI token limit reached ({user.ai_tokens_used:,} / {limit:,}). Resets on the 1st of next month.")
+    await db.commit()
+    return user.ai_tokens_used, limit
+
+
+async def record_ai_usage(db: AsyncSession, user_id: int, tokens: int) -> None:
+    """Record token usage for a user."""
+    from app.models.user import User
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one()
+    _check_and_reset_monthly(user)
+    user.ai_tokens_used += tokens
+    await db.commit()
 
 
 async def ask_coach(
@@ -311,8 +345,10 @@ async def ask_coach(
     user_id: int = 0,
     extra: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Full pipeline: build context -> format prompt -> call Grok -> return (response, context_snapshot)."""
+    """Full pipeline: check budget -> build context -> format prompt -> call Grok -> record usage."""
+    await check_ai_budget(db, user_id)
     context = await build_context(db, context_type, user_id, extra)
     system_prompt = format_system_prompt(context, context_type)
-    response = await call_grok(system_prompt, user_message)
+    response, tokens = await call_grok(system_prompt, user_message)
+    await record_ai_usage(db, user_id, tokens)
     return response, context

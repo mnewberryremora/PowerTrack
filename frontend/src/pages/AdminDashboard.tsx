@@ -61,6 +61,12 @@ export default function AdminDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
   })
 
+  const tokenLimitMutation = useMutation({
+    mutationFn: ({ userId, limit }: { userId: number; limit: number | null }) =>
+      adminApi.setTokenLimit(userId, limit),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
+  })
+
   // Invites
   const invitesQuery = useQuery<Invite[]>({
     queryKey: ['admin-invites'],
@@ -253,6 +259,7 @@ export default function AdminDashboard() {
                     <th className="text-left px-4 py-3 text-text-muted font-medium">Status</th>
                     <th className="text-left px-4 py-3 text-text-muted font-medium hidden md:table-cell">Admin</th>
                     <th className="text-left px-4 py-3 text-text-muted font-medium hidden lg:table-cell">Registered</th>
+                    <th className="text-left px-4 py-3 text-text-muted font-medium hidden md:table-cell">AI Tokens</th>
                     <th className="text-right px-4 py-3 text-text-muted font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -281,6 +288,27 @@ export default function AdminDashboard() {
                           day: 'numeric',
                           year: 'numeric',
                         })}
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-text-muted text-xs">
+                            {(u.ai_tokens_used ?? 0).toLocaleString()}
+                            {' / '}
+                            <button
+                              onClick={() => {
+                                const val = prompt('Monthly AI token limit (blank = global default):', u.ai_token_limit?.toString() ?? '')
+                                if (val === null) return
+                                const limit = val.trim() === '' ? null : parseInt(val, 10)
+                                if (limit !== null && isNaN(limit)) return
+                                tokenLimitMutation.mutate({ userId: u.id, limit })
+                              }}
+                              className="text-primary hover:underline"
+                              title="Click to set token limit"
+                            >
+                              {u.ai_token_limit != null ? u.ai_token_limit.toLocaleString() : 'default'}
+                            </button>
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end flex-wrap">
