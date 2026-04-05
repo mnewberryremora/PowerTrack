@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Trash2, Save, CheckCircle, Star, Search, GripVertical, ArrowLeft,
 } from 'lucide-react'
-import { workouts, exercises as exercisesApi } from '../api/client'
+import { workouts, exercises as exercisesApi, programs } from '../api/client'
 import type { Workout, WorkoutCreate, Exercise } from '../types'
 
 // ── Types for local form state ──
@@ -104,6 +104,7 @@ export default function WorkoutDetail() {
   const queryClient = useQueryClient()
   const isNew = !id
   const initialDate = searchParams.get('date') || todayStr()
+  const programParam = searchParams.get('program')
 
   const [form, setForm] = useState<FormState>({
     date: initialDate,
@@ -114,6 +115,7 @@ export default function WorkoutDetail() {
     fatigue_level: 3,
     exercises: [],
   })
+  const [programInfo, setProgramInfo] = useState<{ program_id: number; day_index: number; day_number: number; program_name: string } | null>(null)
 
   const [exerciseSearch, setExerciseSearch] = useState('')
   const [showExercisePicker, setShowExercisePicker] = useState(false)
@@ -164,33 +166,68 @@ export default function WorkoutDetail() {
     }
   }, [workoutQuery.data])
 
+  // Auto-fill from program template
+  useEffect(() => {
+    if (!isNew || !programParam) return
+    const pid = Number(programParam)
+    if (!pid) return
+    programs.nextWorkout(pid).then((next) => {
+      setProgramInfo({ program_id: next.program_id, day_index: next.day_index, day_number: next.day_number, program_name: next.program_name })
+      const tmpl = next.template
+      setForm((f) => ({
+        ...f,
+        name: tmpl.name || `${next.program_name} — Day ${next.day_number}`,
+        exercises: (tmpl.exercises ?? []).map((ex: any, i: number) => ({
+          key: nextKey(),
+          exercise_id: ex.exercise_id,
+          exercise_name: ex.exercise_name,
+          order: i + 1,
+          notes: '',
+          sets: Array.from({ length: ex.sets || 3 }, (_, si) => ({
+            key: nextKey(),
+            set_number: si + 1,
+            weight_lbs: '',
+            reps: typeof ex.reps === 'number' ? ex.reps : '',
+            rpe: ex.rpe ?? '',
+            type: (ex.set_type || 'working') as LocalSet['type'],
+            notes: '',
+          })),
+        })),
+      }))
+    }).catch(() => { /* program might have no templates */ })
+  }, [isNew, programParam])
+
   // ── Mutations ──
+
+  const buildPayload = (): WorkoutCreate => ({
+    date: form.date,
+    name: form.name || undefined,
+    notes: form.notes || undefined,
+    bodyweight_lbs: form.bodyweight ? Number(form.bodyweight) : undefined,
+    sleep_quality: form.sleep_quality,
+    fatigue_level: form.fatigue_level,
+    program_id: programInfo?.program_id,
+    program_day_index: programInfo?.day_index,
+    exercises: form.exercises
+      .filter((e) => e.exercise_id !== null)
+      .map((e) => ({
+        exercise_id: e.exercise_id!,
+        order_index: e.order,
+        notes: e.notes || undefined,
+        sets: e.sets.map((s) => ({
+          set_number: s.set_number,
+          weight_lbs: Number(s.weight_lbs) || 0,
+          reps: Number(s.reps) || 0,
+          rpe: s.rpe ? Number(s.rpe) : undefined,
+          set_type: s.type,
+          notes: s.notes || undefined,
+        })),
+      })),
+  })
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const payload: WorkoutCreate = {
-        date: form.date,
-        name: form.name || undefined,
-        notes: form.notes || undefined,
-        bodyweight_lbs: form.bodyweight ? Number(form.bodyweight) : undefined,
-        sleep_quality: form.sleep_quality,
-        fatigue_level: form.fatigue_level,
-        exercises: form.exercises
-          .filter((e) => e.exercise_id !== null)
-          .map((e) => ({
-            exercise_id: e.exercise_id!,
-            order_index: e.order,
-            notes: e.notes || undefined,
-            sets: e.sets.map((s) => ({
-              set_number: s.set_number,
-              weight_lbs: Number(s.weight_lbs) || 0,
-              reps: Number(s.reps) || 0,
-              rpe: s.rpe ? Number(s.rpe) : undefined,
-              set_type: s.type,
-              notes: s.notes || undefined,
-            })),
-          })),
-      }
+      const payload = buildPayload()
       if (isNew) {
         return workouts.create(payload)
       }
@@ -207,31 +244,8 @@ export default function WorkoutDetail() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-      // Save first, then complete
+      const payload = buildPayload()
       let workout: Workout
-      const payload: WorkoutCreate = {
-        date: form.date,
-        name: form.name || undefined,
-        notes: form.notes || undefined,
-        bodyweight_lbs: form.bodyweight ? Number(form.bodyweight) : undefined,
-        sleep_quality: form.sleep_quality,
-        fatigue_level: form.fatigue_level,
-        exercises: form.exercises
-          .filter((e) => e.exercise_id !== null)
-          .map((e) => ({
-            exercise_id: e.exercise_id!,
-            order_index: e.order,
-            notes: e.notes || undefined,
-            sets: e.sets.map((s) => ({
-              set_number: s.set_number,
-              weight_lbs: Number(s.weight_lbs) || 0,
-              reps: Number(s.reps) || 0,
-              rpe: s.rpe ? Number(s.rpe) : undefined,
-              set_type: s.type,
-              notes: s.notes || undefined,
-            })),
-          })),
-      }
       if (isNew) {
         workout = await workouts.create(payload)
       } else {
@@ -391,9 +405,14 @@ export default function WorkoutDetail() {
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-3xl font-bold text-text">
-            {isNew ? 'New Workout' : 'Edit Workout'}
-          </h1>
+          <div>
+            <h1 className="text-3xl font-bold text-text">
+              {isNew ? 'New Workout' : 'Edit Workout'}
+            </h1>
+            {programInfo && (
+              <p className="text-primary text-sm mt-0.5">{programInfo.program_name} — Day {programInfo.day_number}</p>
+            )}
+          </div>
         </div>
         <div className="flex gap-3">
           {!isNew && (

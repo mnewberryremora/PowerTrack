@@ -1,14 +1,16 @@
 import json
 from datetime import date as date_type, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
 from app.db import get_db
 from app.models.program import Program
+from app.models.workout import Workout, WorkoutExercise, Set as SetModel
 from app.models.user import User
 from app.services.ai_coach import ask_coach
 
@@ -199,3 +201,180 @@ async def generate_program(
     await db.commit()
     await db.refresh(program)
     return program
+
+
+# ---------- Workout templates within a program ----------
+
+
+class WorkoutTemplateExercise(BaseModel):
+    exercise_id: int
+    exercise_name: str
+    sets: int = 3
+    reps: int | str = 5
+    rpe: float | None = None
+    set_type: str = "working"
+    intensity: str | None = None
+
+
+class WorkoutTemplate(BaseModel):
+    name: str
+    exercises: list[WorkoutTemplateExercise] = []
+
+
+async def _get_user_program(db: AsyncSession, program_id: int, user_id: int) -> Program:
+    result = await db.execute(
+        select(Program).where(Program.id == program_id, Program.user_id == user_id)
+    )
+    program = result.scalar_one_or_none()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+    return program
+
+
+def _get_workouts(program: Program) -> list[dict]:
+    """Get the workouts list from program_data, initializing if needed."""
+    if not isinstance(program.program_data, dict):
+        program.program_data = {"workouts": []}
+    if "workouts" not in program.program_data:
+        program.program_data["workouts"] = []
+    return program.program_data["workouts"]
+
+
+@router.post("/{program_id}/workouts", response_model=ProgramOut)
+async def add_workout_template(
+    program_id: int,
+    data: WorkoutTemplate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    program = await _get_user_program(db, program_id, current_user.id)
+    workouts_list = _get_workouts(program)
+    workouts_list.append(data.model_dump())
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(program, "program_data")
+    await db.commit()
+    await db.refresh(program)
+    return program
+
+
+@router.delete("/{program_id}/workouts/{index}", response_model=ProgramOut)
+async def remove_workout_template(
+    program_id: int,
+    index: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    program = await _get_user_program(db, program_id, current_user.id)
+    workouts_list = _get_workouts(program)
+    if index < 0 or index >= len(workouts_list):
+        raise HTTPException(status_code=400, detail="Invalid workout index")
+    workouts_list.pop(index)
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(program, "program_data")
+    await db.commit()
+    await db.refresh(program)
+    return program
+
+
+@router.put("/{program_id}/workouts/{index}", response_model=ProgramOut)
+async def update_workout_template(
+    program_id: int,
+    index: int,
+    data: WorkoutTemplate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    program = await _get_user_program(db, program_id, current_user.id)
+    workouts_list = _get_workouts(program)
+    if index < 0 or index >= len(workouts_list):
+        raise HTTPException(status_code=400, detail="Invalid workout index")
+    workouts_list[index] = data.model_dump()
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(program, "program_data")
+    await db.commit()
+    await db.refresh(program)
+    return program
+
+
+@router.post("/{program_id}/workouts/copy-from/{workout_id}", response_model=ProgramOut)
+async def copy_workout_to_program(
+    program_id: int,
+    workout_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Copy exercises from an existing workout into the program as a new template."""
+    program = await _get_user_program(db, program_id, current_user.id)
+
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Workout)
+        .where(Workout.id == workout_id, Workout.user_id == current_user.id)
+        .options(selectinload(Workout.exercises).selectinload(WorkoutExercise.exercise))
+        .options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets))
+    )
+    workout = result.scalar_one_or_none()
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    template_exercises = []
+    for we in sorted(workout.exercises, key=lambda x: x.order_index):
+        working_sets = [s for s in we.sets if s.set_type == "working"]
+        if working_sets:
+            rep_counts = [s.reps for s in working_sets]
+            reps: int | str = rep_counts[0] if len(set(rep_counts)) == 1 else str(min(rep_counts)) + "-" + str(max(rep_counts))
+        else:
+            reps = 5
+        template_exercises.append({
+            "exercise_id": we.exercise_id,
+            "exercise_name": we.exercise.name if we.exercise else f"Exercise #{we.exercise_id}",
+            "sets": len(working_sets) or len(we.sets),
+            "reps": reps,
+            "set_type": "working",
+        })
+
+    workouts_list = _get_workouts(program)
+    workouts_list.append({
+        "name": workout.name or f"Day {len(workouts_list) + 1}",
+        "exercises": template_exercises,
+    })
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(program, "program_data")
+    await db.commit()
+    await db.refresh(program)
+    return program
+
+
+@router.get("/{program_id}/next")
+async def get_next_workout(
+    program_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the next workout template in the program rotation."""
+    program = await _get_user_program(db, program_id, current_user.id)
+    workouts_list = _get_workouts(program)
+    if not workouts_list:
+        raise HTTPException(status_code=404, detail="Program has no workout templates")
+
+    # Count completed workouts for this program to determine next in rotation
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(Workout)
+        .where(and_(
+            Workout.user_id == current_user.id,
+            Workout.program_id == program_id,
+            Workout.completed.is_(True),
+        ))
+    )
+    completed_count = count_result.scalar() or 0
+    next_index = completed_count % len(workouts_list)
+
+    return {
+        "program_id": program_id,
+        "program_name": program.name,
+        "day_index": next_index,
+        "day_number": completed_count + 1,
+        "total_templates": len(workouts_list),
+        "template": workouts_list[next_index],
+    }

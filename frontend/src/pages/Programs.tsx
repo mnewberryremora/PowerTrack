@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Sparkles, Calendar, ChevronDown, ChevronUp, X, BookOpen, Loader2, Trash2,
+  Plus, Sparkles, Calendar, ChevronDown, ChevronUp, X, BookOpen, Loader2, Trash2, Copy, Play,
 } from 'lucide-react'
-import { programs } from '../api/client'
-import type { Program, ProgramCreate, ProgramGenerate } from '../types'
+import { programs, workouts as workoutsApi } from '../api/client'
+import type { Program, ProgramCreate, ProgramGenerate, WorkoutSummary } from '../types'
 import { formatDate } from '../utils/date'
 
 const GOALS = ['strength', 'hypertrophy', 'peaking', 'general'] as const
@@ -21,9 +22,11 @@ function statusBadge(program: Program) {
 
 export default function Programs() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
   const [showAiForm, setShowAiForm] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [showCopyPicker, setShowCopyPicker] = useState<number | null>(null)
 
   // Form state
   const [name, setName] = useState('')
@@ -67,6 +70,28 @@ export default function Programs() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => programs.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['programs'] }),
+  })
+
+  const removeTemplateMutation = useMutation({
+    mutationFn: ({ programId, index }: { programId: number; index: number }) =>
+      programs.removeWorkout(programId, index),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['programs'] }),
+  })
+
+  const copyWorkoutMutation = useMutation({
+    mutationFn: ({ programId, workoutId }: { programId: number; workoutId: number }) =>
+      programs.copyWorkout(programId, workoutId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['programs'] })
+      setShowCopyPicker(null)
+    },
+  })
+
+  // Past workouts for copy picker
+  const pastWorkoutsQuery = useQuery<WorkoutSummary[]>({
+    queryKey: ['workouts'],
+    queryFn: () => workoutsApi.list(),
+    enabled: showCopyPicker !== null,
   })
 
   const resetForm = () => {
@@ -365,50 +390,127 @@ export default function Programs() {
                     </button>
 
                     {expanded && (
-                      <div className="border-t border-surface-light p-5">
-                        {pdata?.weeks && Array.isArray(pdata.weeks) && pdata.weeks.length > 0 ? (
-                          /* AI-generated format: { weeks: [{ week_number, block, days: [{ day_number, name, exercises }] }] } */
-                          <div className="space-y-4">
-                            {pdata.weeks.map((wk: any) => (
-                              <div key={wk.week_number}>
-                                <h4 className="text-text font-medium mb-2">
-                                  Week {wk.week_number}{wk.block ? ` — ${wk.block}` : ''}
-                                </h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                  {(wk.days ?? []).map((day: any) => (
-                                    <div
-                                      key={day.day_number}
-                                      className="bg-bg rounded-lg p-3 border border-surface-light"
-                                    >
-                                      <p className="text-text-muted text-xs font-medium mb-2">
-                                        Day {day.day_number}{day.name ? ` — ${day.name}` : ''}
-                                      </p>
-                                      {(day.exercises ?? []).map((ex: any, i: number) => (
-                                        <div
-                                          key={i}
-                                          className="flex items-center justify-between text-sm py-1"
-                                        >
-                                          <span className="text-text">{ex.exercise_name}</span>
-                                          <span className="text-text-muted text-xs">
-                                            {ex.sets}x{ex.reps}
-                                            {ex.intensity_pct ? ` @${ex.intensity_pct}%` : ''}
-                                            {ex.rpe_target ? ` RPE ${ex.rpe_target}` : ''}
-                                          </span>
-                                        </div>
+                      <div className="border-t border-surface-light p-5 space-y-4">
+                        {/* Program info */}
+                        {(pdata?.goal || pdata?.duration_weeks) && (
+                          <div className="text-text-muted text-sm flex gap-4">
+                            {pdata?.goal && <span>Goal: <span className="text-text capitalize">{pdata.goal}</span></span>}
+                            {pdata?.duration_weeks && <span>Duration: <span className="text-text">{pdata.duration_weeks} weeks</span></span>}
+                          </div>
+                        )}
+
+                        {/* Workout templates */}
+                        <div>
+                          <h4 className="text-text font-medium mb-3">Workout Rotation</h4>
+                          {(pdata?.workouts ?? []).length === 0 ? (
+                            <p className="text-text-muted text-sm mb-3">No workouts added yet. Add workouts to build your rotation.</p>
+                          ) : (
+                            <div className="space-y-2 mb-3">
+                              {(pdata?.workouts as any[] ?? []).map((wt: any, idx: number) => (
+                                <div key={idx} className="bg-bg rounded-lg p-3 border border-surface-light flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-text-muted text-xs font-medium">Day {idx + 1}</span>
+                                      <span className="text-text font-medium text-sm">{wt.name}</span>
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                      {(wt.exercises ?? []).map((ex: any, i: number) => (
+                                        <span key={i} className="text-text-muted text-xs">
+                                          {ex.exercise_name} {ex.sets}x{ex.reps}
+                                          {ex.intensity_pct ? ` @${ex.intensity_pct}%` : ''}
+                                          {ex.rpe ? ` RPE ${ex.rpe}` : ''}
+                                          {ex.rpe_target ? ` RPE ${ex.rpe_target}` : ''}
+                                        </span>
                                       ))}
                                     </div>
-                                  ))}
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`Remove "${wt.name}" from this program?`))
+                                        removeTemplateMutation.mutate({ programId: prog.id, index: idx })
+                                    }}
+                                    className="p-1 text-text-muted hover:text-danger transition-colors shrink-0"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-text-muted text-sm space-y-1">
-                            {pdata?.goal && <p>Goal: <span className="text-text capitalize">{pdata.goal}</span></p>}
-                            {pdata?.duration_weeks && <p>Duration: <span className="text-text">{pdata.duration_weeks} weeks</span></p>}
-                            {!pdata?.goal && !pdata?.duration_weeks && (
-                              <p>No program structure yet.</p>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setShowCopyPicker(showCopyPicker === prog.id ? null : prog.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-muted hover:text-text bg-bg border border-surface-light rounded-lg transition-colors"
+                            >
+                              <Copy size={14} /> Copy from past workout
+                            </button>
+                            {(pdata?.workouts ?? []).length > 0 && (
+                              <button
+                                onClick={() => navigate(`/workouts/new?program=${prog.id}`)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-success hover:bg-success/80 rounded-lg transition-colors"
+                              >
+                                <Play size={14} /> Start next workout
+                              </button>
                             )}
+                          </div>
+
+                          {/* Copy picker */}
+                          {showCopyPicker === prog.id && (
+                            <div className="mt-3 bg-bg border border-surface-light rounded-lg max-h-60 overflow-y-auto">
+                              {pastWorkoutsQuery.isLoading && (
+                                <p className="p-3 text-text-muted text-sm">Loading workouts...</p>
+                              )}
+                              {(pastWorkoutsQuery.data ?? []).filter(w => w.exercise_count > 0).length === 0 && !pastWorkoutsQuery.isLoading && (
+                                <p className="p-3 text-text-muted text-sm">No past workouts with exercises found.</p>
+                              )}
+                              {(pastWorkoutsQuery.data ?? []).filter(w => w.exercise_count > 0).map(w => (
+                                <button
+                                  key={w.id}
+                                  onClick={() => copyWorkoutMutation.mutate({ programId: prog.id, workoutId: w.id })}
+                                  disabled={copyWorkoutMutation.isPending}
+                                  className="w-full text-left px-3 py-2 hover:bg-surface-light transition-colors border-b border-surface-light/50 last:border-0 disabled:opacity-50"
+                                >
+                                  <span className="text-text text-sm font-medium">{w.name || formatDate(w.date)}</span>
+                                  <span className="text-text-muted text-xs ml-2">{formatDate(w.date)} · {w.exercise_count} exercises</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* AI-generated week structure (if present) */}
+                        {pdata?.weeks && Array.isArray(pdata.weeks) && pdata.weeks.length > 0 && (
+                          <div>
+                            <h4 className="text-text font-medium mb-3">AI-Generated Weekly Plan</h4>
+                            <div className="space-y-3">
+                              {pdata.weeks.map((wk: any) => (
+                                <details key={wk.week_number} className="bg-bg rounded-lg border border-surface-light">
+                                  <summary className="p-3 text-text font-medium text-sm cursor-pointer hover:bg-surface-light/50">
+                                    Week {wk.week_number}{wk.block ? ` — ${wk.block}` : ''}
+                                  </summary>
+                                  <div className="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                    {(wk.days ?? []).map((day: any) => (
+                                      <div key={day.day_number} className="p-2 border border-surface-light/50 rounded">
+                                        <p className="text-text-muted text-xs font-medium mb-1">
+                                          Day {day.day_number}{day.name ? ` — ${day.name}` : ''}
+                                        </p>
+                                        {(day.exercises ?? []).map((ex: any, i: number) => (
+                                          <div key={i} className="flex justify-between text-xs py-0.5">
+                                            <span className="text-text">{ex.exercise_name}</span>
+                                            <span className="text-text-muted">
+                                              {ex.sets}x{ex.reps}
+                                              {ex.intensity_pct ? ` @${ex.intensity_pct}%` : ''}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </details>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

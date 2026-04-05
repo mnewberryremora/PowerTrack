@@ -153,6 +153,14 @@ export const programs = {
     api.delete(`/api/programs/${id}`).then(r => r.data),
   generate: (data: ProgramGenerate) =>
     api.post<Program>('/api/programs/generate', data).then(r => r.data),
+  addWorkout: (programId: number, data: { name: string; exercises: any[] }) =>
+    api.post<Program>(`/api/programs/${programId}/workouts`, data).then(r => r.data),
+  removeWorkout: (programId: number, index: number) =>
+    api.delete<Program>(`/api/programs/${programId}/workouts/${index}`).then(r => r.data),
+  copyWorkout: (programId: number, workoutId: number) =>
+    api.post<Program>(`/api/programs/${programId}/workouts/copy-from/${workoutId}`).then(r => r.data),
+  nextWorkout: (programId: number) =>
+    api.get<{ program_id: number; program_name: string; day_index: number; day_number: number; total_templates: number; template: any }>(`/api/programs/${programId}/next`).then(r => r.data),
 }
 
 // ── Analytics ──

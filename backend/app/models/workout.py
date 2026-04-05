@@ -20,6 +20,8 @@ class Workout(Base):
     sleep_quality: Mapped[int | None] = mapped_column(SmallInteger)
     fatigue_level: Mapped[int | None] = mapped_column(SmallInteger)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    program_id: Mapped[int | None] = mapped_column(ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
+    program_day_index: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     exercises: Mapped[list["WorkoutExercise"]] = relationship(

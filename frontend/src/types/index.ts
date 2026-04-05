@@ -103,6 +103,8 @@ export interface Workout {
   sleep_quality?: number
   fatigue_level?: number
   completed: boolean
+  program_id?: number
+  program_day_index?: number
   created_at: string
   exercises: WorkoutExercise[]
 }
@@ -116,6 +118,8 @@ export interface WorkoutCreate {
   sleep_quality?: number
   fatigue_level?: number
   completed?: boolean
+  program_id?: number
+  program_day_index?: number
   exercises: WorkoutExerciseCreate[]
 }
 

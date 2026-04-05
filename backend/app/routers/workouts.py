@@ -111,6 +111,8 @@ async def create_workout(
         sleep_quality=data.sleep_quality,
         fatigue_level=data.fatigue_level,
         completed=data.completed,
+        program_id=data.program_id,
+        program_day_index=data.program_day_index,
     )
     db.add(workout)
     await db.flush()

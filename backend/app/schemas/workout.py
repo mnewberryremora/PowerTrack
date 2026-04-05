@@ -62,6 +62,8 @@ class WorkoutCreate(BaseModel):
     sleep_quality: Optional[int] = None
     fatigue_level: Optional[int] = None
     completed: bool = False
+    program_id: Optional[int] = None
+    program_day_index: Optional[int] = None
     exercises: list[WorkoutExerciseCreate] = []
 
 
@@ -77,6 +79,8 @@ class WorkoutOut(BaseModel):
     sleep_quality: Optional[int] = None
     fatigue_level: Optional[int] = None
     completed: bool
+    program_id: Optional[int] = None
+    program_day_index: Optional[int] = None
     created_at: datetime
     exercises: list[WorkoutExerciseOut] = []
 
