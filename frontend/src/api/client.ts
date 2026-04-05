@@ -39,7 +39,7 @@ api.interceptors.request.use((config) => {
 
 export const auth = {
   register: (data: RegisterRequest) =>
-    api.post<AuthToken>('/api/auth/register', data).then(r => r.data),
+    api.post<{ message: string }>('/api/auth/register', data).then(r => r.data),
   login: (data: LoginRequest) =>
     api.post<AuthToken>('/api/auth/login', data).then(r => r.data),
   me: () =>

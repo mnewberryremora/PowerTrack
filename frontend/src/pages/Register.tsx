@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Dumbbell } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Register() {
   const { register } = useAuth()
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const inviteToken = searchParams.get('invite') ?? undefined
   const [email, setEmail] = useState('')
@@ -26,11 +25,7 @@ export default function Register() {
     setLoading(true)
     try {
       const result = await register(email, password, displayName || undefined, inviteToken)
-      if (result?.message) {
-        setSuccess(result.message)
-      } else {
-        navigate('/', { replace: true })
-      }
+      setSuccess(result.message)
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Registration failed.')
     } finally {
