@@ -236,50 +236,49 @@ async def get_dots_history(db: AsyncSession, user_id: int) -> list[dict[str, Any
 
     data.sort(key=lambda x: x["date"])
 
-    # Use only body metrics bodyweight for the "current" data point — workout
-    # bodyweight is per-session and unreliable for DOTS (could be lean mass, weigh-in, etc.)
-    latest_bw: float | None = None
-    if metrics:
-        for bm in reversed(metrics):
-            if bm.bodyweight_lbs:
-                latest_bw = float(bm.bodyweight_lbs)
-                break
-
-    if latest_bw:
-        current_total = 0.0
-        for ex_id in comp_ids:
-            # Use most recent single-rep working set (not all-time best, which may be stale)
-            recent_1rm = (await db.execute(
-                select(Set.weight_lbs)
-                .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
-                .join(Workout, WorkoutExercise.workout_id == Workout.id)
-                .where(and_(
-                    Workout.user_id == user_id,
-                    WorkoutExercise.exercise_id == ex_id,
-                    Set.reps == 1,
-                    Set.set_type != "warmup",
-                ))
-                .order_by(desc(Workout.date))
-                .limit(1)
+    # Current DOTS: use the most recent 1-rep working set per lift and the
+    # bodyweight from the workout where that single was performed.
+    current_total = 0.0
+    current_bw_candidates: list[float] = []
+    for ex_id in comp_ids:
+        row = (await db.execute(
+            select(Set.weight_lbs, Workout.bodyweight_lbs)
+            .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+            .join(Workout, WorkoutExercise.workout_id == Workout.id)
+            .where(and_(
+                Workout.user_id == user_id,
+                WorkoutExercise.exercise_id == ex_id,
+                Set.reps == 1,
+                Set.set_type != "warmup",
+            ))
+            .order_by(desc(Workout.date), desc(Set.weight_lbs))
+            .limit(1)
+        )).first()
+        if row:
+            current_total += float(row[0])
+            if row[1]:
+                current_bw_candidates.append(float(row[1]))
+        else:
+            # Fall back to best e1RM if no single-rep sets exist
+            best = (await db.execute(
+                select(func.max(PersonalRecord.e1rm_lbs))
+                .where(and_(PersonalRecord.user_id == user_id, PersonalRecord.exercise_id == ex_id))
             )).scalar()
-            if recent_1rm:
-                current_total += float(recent_1rm)
-            else:
-                # Fall back to best e1RM if no single-rep sets exist
-                best = (await db.execute(
-                    select(func.max(PersonalRecord.e1rm_lbs))
-                    .where(and_(PersonalRecord.user_id == user_id, PersonalRecord.exercise_id == ex_id))
-                )).scalar()
-                if best:
-                    current_total += float(best)
-        if current_total > 0:
-            dots = calculate_dots(lbs_to_kg(current_total), lbs_to_kg(latest_bw))
-            today_str = str(date.today())
-            # Always update/replace the current entry so it reflects latest BW + best PRs
-            if data and data[-1].get("is_current"):
-                data[-1] = {"date": today_str, "dots": dots, "bodyweight_lbs": latest_bw, "total_lbs": current_total, "is_current": True}
-            else:
-                data.append({"date": today_str, "dots": dots, "bodyweight_lbs": latest_bw, "total_lbs": current_total, "is_current": True})
+            if best:
+                current_total += float(best)
+
+    # Prefer workout bodyweight from the most recent single; fall back to body metrics
+    current_bw = current_bw_candidates[0] if current_bw_candidates else (
+        float(metrics[-1].bodyweight_lbs) if metrics and metrics[-1].bodyweight_lbs else None
+    )
+
+    if current_total > 0 and current_bw:
+        dots = calculate_dots(lbs_to_kg(current_total), lbs_to_kg(current_bw))
+        today_str = str(date.today())
+        if data and data[-1].get("is_current"):
+            data[-1] = {"date": today_str, "dots": dots, "bodyweight_lbs": current_bw, "total_lbs": current_total, "is_current": True}
+        else:
+            data.append({"date": today_str, "dots": dots, "bodyweight_lbs": current_bw, "total_lbs": current_total, "is_current": True})
 
     return data
 
