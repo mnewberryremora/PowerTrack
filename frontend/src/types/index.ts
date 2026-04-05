@@ -220,12 +220,12 @@ export interface ProgramCreate {
 }
 
 export interface ProgramGenerate {
-  goal: string
-  duration_weeks: number
-  training_days_per_week: number
-  meet_date?: string
-  weak_points?: string[]
-  notes?: string
+  goals?: string
+  program_length_weeks?: number
+  days_per_week?: number
+  experience_level?: string
+  meet_id?: number
+  weak_points?: string
 }
 
 // ── AI Coach ──

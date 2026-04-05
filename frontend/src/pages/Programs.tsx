@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Sparkles, Calendar, ChevronDown, ChevronUp, X, BookOpen,
+  Plus, Sparkles, Calendar, ChevronDown, ChevronUp, X, BookOpen, Loader2,
 } from 'lucide-react'
 import { programs } from '../api/client'
-import type { Program, ProgramCreate } from '../types'
+import type { Program, ProgramCreate, ProgramGenerate } from '../types'
 import { formatDate } from '../utils/date'
 
 const GOALS = ['strength', 'hypertrophy', 'peaking', 'general'] as const
@@ -22,6 +22,7 @@ function statusBadge(program: Program) {
 export default function Programs() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [showAiForm, setShowAiForm] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
   // Form state
@@ -29,6 +30,13 @@ export default function Programs() {
   const [description, setDescription] = useState('')
   const [weeks, setWeeks] = useState<number | ''>(8)
   const [goal, setGoal] = useState('strength')
+
+  // AI form state
+  const [aiGoal, setAiGoal] = useState('Increase total and DOTS score')
+  const [aiWeeks, setAiWeeks] = useState<number>(12)
+  const [aiDays, setAiDays] = useState<number>(4)
+  const [aiLevel, setAiLevel] = useState('intermediate')
+  const [aiWeakPoints, setAiWeakPoints] = useState('')
 
   const { data: programList, isLoading, isError } = useQuery<Program[]>({
     queryKey: ['programs'],
@@ -40,6 +48,19 @@ export default function Programs() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['programs'] })
       resetForm()
+    },
+  })
+
+  const generateMutation = useMutation({
+    mutationFn: (data: ProgramGenerate) => programs.generate(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['programs'] })
+      setShowAiForm(false)
+      setAiGoal('Increase total and DOTS score')
+      setAiWeeks(12)
+      setAiDays(4)
+      setAiLevel('intermediate')
+      setAiWeakPoints('')
     },
   })
 
@@ -70,17 +91,17 @@ export default function Programs() {
         <h1 className="text-3xl font-bold text-text">Programs</h1>
         <div className="flex gap-3">
           <button
-            className="flex items-center gap-2 bg-surface border border-surface-light text-text-muted px-4 py-2.5 rounded-lg font-medium cursor-not-allowed opacity-60"
-            disabled
-            title="Coming soon"
+            onClick={() => { setShowAiForm((v) => !v); setShowForm(false) }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors border ${
+              showAiForm
+                ? 'bg-primary/20 border-primary/30 text-primary'
+                : 'bg-surface border-surface-light text-text-muted hover:text-text'
+            }`}
           >
             <Sparkles size={16} /> Generate with AI
-            <span className="px-1.5 py-0.5 bg-accent/20 text-accent rounded text-[10px] font-medium ml-1">
-              SOON
-            </span>
           </button>
           <button
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => { setShowForm((v) => !v); setShowAiForm(false) }}
             className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-lg font-medium transition-colors"
           >
             <Plus size={18} /> New Program
@@ -161,6 +182,98 @@ export default function Programs() {
         </div>
       )}
 
+      {/* AI Generate form */}
+      {showAiForm && (
+        <div className="bg-surface rounded-xl p-5 border border-primary/20 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-text flex items-center gap-2">
+              <Sparkles size={18} className="text-primary" /> Generate Program with AI
+            </h2>
+            <button onClick={() => setShowAiForm(false)} className="text-text-muted hover:text-text">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="sm:col-span-2">
+              <label className="text-text-muted text-sm font-medium block mb-1">Goals</label>
+              <input
+                type="text"
+                value={aiGoal}
+                onChange={(e) => setAiGoal(e.target.value)}
+                placeholder="e.g. Increase total and DOTS score"
+                className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-text-muted text-sm font-medium block mb-1">Duration (weeks)</label>
+              <input
+                type="number"
+                min={4}
+                max={52}
+                value={aiWeeks}
+                onChange={(e) => setAiWeeks(Number(e.target.value))}
+                className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-text-muted text-sm font-medium block mb-1">Days / Week</label>
+              <input
+                type="number"
+                min={2}
+                max={7}
+                value={aiDays}
+                onChange={(e) => setAiDays(Number(e.target.value))}
+                className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-text-muted text-sm font-medium block mb-1">Experience Level</label>
+              <select
+                value={aiLevel}
+                onChange={(e) => setAiLevel(e.target.value)}
+                className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text focus:outline-none focus:border-primary"
+              >
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-text-muted text-sm font-medium block mb-1">Weak Points</label>
+              <input
+                type="text"
+                value={aiWeakPoints}
+                onChange={(e) => setAiWeakPoints(e.target.value)}
+                placeholder="e.g. Bench lockout, squat depth"
+                className="w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => generateMutation.mutate({
+              goals: aiGoal,
+              program_length_weeks: aiWeeks,
+              days_per_week: aiDays,
+              experience_level: aiLevel,
+              weak_points: aiWeakPoints || undefined,
+            })}
+            disabled={generateMutation.isPending}
+            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            {generateMutation.isPending ? (
+              <><Loader2 size={16} className="animate-spin" /> Generating (this may take a minute)...</>
+            ) : (
+              <><Sparkles size={16} /> Generate Program</>
+            )}
+          </button>
+          {generateMutation.isError && (
+            <p className="text-danger text-sm">
+              {(generateMutation.error as any)?.response?.data?.detail ?? 'Failed to generate program.'}
+            </p>
+          )}
+        </div>
+      )}
+
       {isError && (
         <div className="bg-danger/10 border border-danger/30 rounded-lg p-4 text-danger">
           Failed to load programs.
@@ -188,10 +301,7 @@ export default function Programs() {
               {sorted.map((prog) => {
                 const badge = statusBadge(prog)
                 const expanded = expandedId === prog.id
-                const template = prog.program_data as
-                  | Record<string, Record<string, Array<{ exercise: string; sets: number; reps: string; intensity: string }>>>
-                  | null
-                  | undefined
+                const pdata = prog.program_data as Record<string, any> | null | undefined
 
                 return (
                   <div
@@ -237,13 +347,50 @@ export default function Programs() {
 
                     {expanded && (
                       <div className="border-t border-surface-light p-5">
-                        {template && Object.keys(template).length > 0 ? (
+                        {pdata?.weeks && Array.isArray(pdata.weeks) && pdata.weeks.length > 0 ? (
+                          /* AI-generated format: { weeks: [{ week_number, block, days: [{ day_number, name, exercises }] }] } */
                           <div className="space-y-4">
-                            {Object.entries(template).map(([week, days]) => (
+                            {pdata.weeks.map((wk: any) => (
+                              <div key={wk.week_number}>
+                                <h4 className="text-text font-medium mb-2">
+                                  Week {wk.week_number}{wk.block ? ` — ${wk.block}` : ''}
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                  {(wk.days ?? []).map((day: any) => (
+                                    <div
+                                      key={day.day_number}
+                                      className="bg-bg rounded-lg p-3 border border-surface-light"
+                                    >
+                                      <p className="text-text-muted text-xs font-medium mb-2">
+                                        Day {day.day_number}{day.name ? ` — ${day.name}` : ''}
+                                      </p>
+                                      {(day.exercises ?? []).map((ex: any, i: number) => (
+                                        <div
+                                          key={i}
+                                          className="flex items-center justify-between text-sm py-1"
+                                        >
+                                          <span className="text-text">{ex.exercise_name}</span>
+                                          <span className="text-text-muted text-xs">
+                                            {ex.sets}x{ex.reps}
+                                            {ex.intensity_pct ? ` @${ex.intensity_pct}%` : ''}
+                                            {ex.rpe_target ? ` RPE ${ex.rpe_target}` : ''}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : pdata && Object.keys(pdata).some(k => k !== 'duration_weeks' && k !== 'goal') ? (
+                          /* Legacy/manual format with week/day keys */
+                          <div className="space-y-4">
+                            {Object.entries(pdata).filter(([k]) => k !== 'duration_weeks' && k !== 'goal').map(([week, days]) => (
                               <div key={week}>
                                 <h4 className="text-text font-medium mb-2 capitalize">{week}</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                  {Object.entries(days).map(([day, exs]) => (
+                                  {Object.entries(days as Record<string, any>).map(([day, exs]) => (
                                     <div
                                       key={day}
                                       className="bg-bg rounded-lg p-3 border border-surface-light"
@@ -272,10 +419,13 @@ export default function Programs() {
                             ))}
                           </div>
                         ) : (
-                          <p className="text-text-muted text-sm">
-                            No template data yet. This program does not have a detailed week/day
-                            structure configured.
-                          </p>
+                          <div className="text-text-muted text-sm space-y-1">
+                            {pdata?.goal && <p>Goal: <span className="text-text capitalize">{pdata.goal}</span></p>}
+                            {pdata?.duration_weeks && <p>Duration: <span className="text-text">{pdata.duration_weeks} weeks</span></p>}
+                            {!pdata?.goal && !pdata?.duration_weeks && (
+                              <p>No program structure yet.</p>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

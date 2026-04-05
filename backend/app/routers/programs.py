@@ -1,5 +1,5 @@
 import json
-from datetime import date as date_type, timedelta
+from datetime import date as date_type, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -48,7 +48,7 @@ class ProgramOut(BaseModel):
     ai_generated: bool
     description: str | None = None
     program_data: dict
-    created_at: date_type
+    created_at: datetime
 
 
 class ProgramGenerateRequest(BaseModel):
