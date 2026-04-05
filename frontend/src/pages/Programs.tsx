@@ -358,7 +358,7 @@ export default function Programs() {
                           deleteMutation.mutate(prog.id)
                         }
                       }}
-                      className="absolute top-4 right-4 p-1.5 text-text-muted hover:text-danger transition-colors opacity-0 group-hover:opacity-100"
+                      className="absolute top-4 right-4 p-1.5 text-text-muted hover:text-danger transition-colors"
                       title="Delete program"
                     >
                       <Trash2 size={14} />
