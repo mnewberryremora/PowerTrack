@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Sparkles, Calendar, ChevronDown, ChevronUp, X, BookOpen, Loader2,
+  Plus, Sparkles, Calendar, ChevronDown, ChevronUp, X, BookOpen, Loader2, Trash2,
 } from 'lucide-react'
 import { programs } from '../api/client'
 import type { Program, ProgramCreate, ProgramGenerate } from '../types'
@@ -62,6 +62,11 @@ export default function Programs() {
       setAiLevel('intermediate')
       setAiWeakPoints('')
     },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => programs.delete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['programs'] }),
   })
 
   const resetForm = () => {
@@ -306,7 +311,7 @@ export default function Programs() {
                 return (
                   <div
                     key={prog.id}
-                    className="bg-surface rounded-xl border border-surface-light overflow-hidden"
+                    className="bg-surface rounded-xl border border-surface-light overflow-hidden relative group"
                   >
                     <button
                       onClick={() => setExpandedId(expanded ? null : prog.id)}
@@ -338,11 +343,25 @@ export default function Programs() {
                           <p className="text-text-muted text-sm mt-2">{prog.description}</p>
                         )}
                       </div>
-                      {expanded ? (
-                        <ChevronUp size={18} className="text-text-muted" />
-                      ) : (
-                        <ChevronDown size={18} className="text-text-muted" />
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {expanded ? (
+                          <ChevronUp size={18} className="text-text-muted" />
+                        ) : (
+                          <ChevronDown size={18} className="text-text-muted" />
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (window.confirm(`Delete "${prog.name}"? This cannot be undone.`)) {
+                          deleteMutation.mutate(prog.id)
+                        }
+                      }}
+                      className="absolute top-4 right-4 p-1.5 text-text-muted hover:text-danger transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete program"
+                    >
+                      <Trash2 size={14} />
                     </button>
 
                     {expanded && (
