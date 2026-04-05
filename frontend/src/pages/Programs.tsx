@@ -383,41 +383,6 @@ export default function Programs() {
                               </div>
                             ))}
                           </div>
-                        ) : pdata && Object.keys(pdata).some(k => k !== 'duration_weeks' && k !== 'goal') ? (
-                          /* Legacy/manual format with week/day keys */
-                          <div className="space-y-4">
-                            {Object.entries(pdata).filter(([k]) => k !== 'duration_weeks' && k !== 'goal').map(([week, days]) => (
-                              <div key={week}>
-                                <h4 className="text-text font-medium mb-2 capitalize">{week}</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                  {Object.entries(days as Record<string, any>).map(([day, exs]) => (
-                                    <div
-                                      key={day}
-                                      className="bg-bg rounded-lg p-3 border border-surface-light"
-                                    >
-                                      <p className="text-text-muted text-xs font-medium mb-2 capitalize">
-                                        {day}
-                                      </p>
-                                      {(exs as Array<{ exercise: string; sets: number; reps: string; intensity: string }>).map(
-                                        (item, i) => (
-                                          <div
-                                            key={i}
-                                            className="flex items-center justify-between text-sm py-1"
-                                          >
-                                            <span className="text-text">{item.exercise}</span>
-                                            <span className="text-text-muted text-xs">
-                                              {item.sets}x{item.reps}{' '}
-                                              {item.intensity && `@${item.intensity}`}
-                                            </span>
-                                          </div>
-                                        ),
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
                         ) : (
                           <div className="text-text-muted text-sm space-y-1">
                             {pdata?.goal && <p>Goal: <span className="text-text capitalize">{pdata.goal}</span></p>}
