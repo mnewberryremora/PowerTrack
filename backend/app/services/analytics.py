@@ -11,7 +11,7 @@ from app.models import (
     Set, Workout, WorkoutExercise,
 )
 from app.services.dots import calculate_dots, lbs_to_kg
-from app.services.pr_detection import epley_e1rm
+from app.services.pr_detection import effective_load
 
 
 async def get_volume_data(
@@ -35,22 +35,50 @@ async def get_volume_data(
     if exercise_id:
         conditions.append(WorkoutExercise.exercise_id == exercise_id)
 
+    bm_rows = (await db.execute(
+        select(BodyMetric.date, BodyMetric.bodyweight_lbs)
+        .where(BodyMetric.user_id == user_id, BodyMetric.bodyweight_lbs.is_not(None))
+        .order_by(BodyMetric.date)
+    )).all()
+    bm_list = [(r.date, float(r.bodyweight_lbs)) for r in bm_rows]
+
+    def bw_for_date(d: date) -> float | None:
+        result = None
+        for bm_date, bw in bm_list:
+            if bm_date <= d:
+                result = bw
+            else:
+                break
+        return result
+
     stmt = (
         select(
             Workout.date,
-            func.sum(Set.weight_lbs * Set.reps).label("volume"),
-            func.count(Set.id).label("total_sets"),
+            Workout.bodyweight_lbs,
+            Exercise.equipment,
+            Set.weight_lbs,
+            Set.reps,
         )
         .join(WorkoutExercise, Workout.id == WorkoutExercise.workout_id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
         .join(Set, WorkoutExercise.id == Set.workout_exercise_id)
         .where(and_(*conditions))
-        .group_by(Workout.date)
         .order_by(Workout.date)
     )
     result = await db.execute(stmt)
+
+    by_date: dict[date, dict[str, Any]] = {}
+    for row in result.all():
+        d = row.date
+        bw = float(row.bodyweight_lbs) if row.bodyweight_lbs else bw_for_date(d)
+        load = effective_load(float(row.weight_lbs), row.equipment, bw)
+        entry = by_date.setdefault(d, {"volume": 0.0, "sets": 0})
+        entry["volume"] += load * row.reps
+        entry["sets"] += 1
+
     return [
-        {"date": str(row.date), "volume": float(row.volume or 0), "sets": row.total_sets}
-        for row in result.all()
+        {"date": str(d), "volume": entry["volume"], "sets": entry["sets"]}
+        for d, entry in sorted(by_date.items())
     ]
 
 

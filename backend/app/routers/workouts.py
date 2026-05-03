@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import get_current_user
 from app.db import get_db
+from app.models.body_metric import BodyMetric
 from app.models.user import User
 from app.models.workout import Workout, WorkoutExercise, Set
 from app.models.pr import PersonalRecord
@@ -20,6 +21,7 @@ from app.schemas.workout import (
     ImportPreviewResponse,
     ImportResult,
 )
+from app.services.pr_detection import effective_load
 from app.services.xlsx_import import parse_xlsx, create_workouts_from_import, generate_template
 
 router = APIRouter()
@@ -37,7 +39,10 @@ async def list_workouts(
     stmt = (
         select(Workout)
         .where(Workout.user_id == current_user.id)
-        .options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets))
+        .options(
+            selectinload(Workout.exercises).selectinload(WorkoutExercise.sets),
+            selectinload(Workout.exercises).selectinload(WorkoutExercise.exercise),
+        )
         .order_by(desc(Workout.date))
     )
     if start_date:
@@ -48,11 +53,28 @@ async def list_workouts(
     result = await db.execute(stmt)
     workouts_list = result.scalars().all()
 
+    bm_rows = (await db.execute(
+        select(BodyMetric.date, BodyMetric.bodyweight_lbs)
+        .where(BodyMetric.user_id == current_user.id, BodyMetric.bodyweight_lbs.is_not(None))
+        .order_by(BodyMetric.date)
+    )).all()
+    bm_list = [(r.date, float(r.bodyweight_lbs)) for r in bm_rows]
+
+    def bw_for_date(d: date) -> float | None:
+        result_bw = None
+        for bm_date, bw in bm_list:
+            if bm_date <= d:
+                result_bw = bw
+            else:
+                break
+        return result_bw
+
     summaries = []
     for w in workouts_list:
         exercise_count = len(w.exercises)
+        bw = float(w.bodyweight_lbs) if w.bodyweight_lbs else bw_for_date(w.date)
         total_volume = sum(
-            float(s.weight_lbs) * s.reps
+            effective_load(float(s.weight_lbs), we.exercise.equipment, bw) * s.reps
             for we in w.exercises
             for s in we.sets
         )

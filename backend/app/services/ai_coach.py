@@ -13,6 +13,7 @@ from app.models import (
     Set, UserPreferences, Workout, WorkoutExercise,
 )
 from app.services.dots import calculate_dots, lbs_to_kg
+from app.services.pr_detection import effective_load
 
 
 async def build_context(
@@ -88,6 +89,23 @@ async def build_context(
         .limit(20)
     )
     recent_workouts = workouts_result.scalars().all()
+
+    bm_rows = (await db.execute(
+        select(BodyMetric.date, BodyMetric.bodyweight_lbs)
+        .where(BodyMetric.user_id == user_id, BodyMetric.bodyweight_lbs.is_not(None))
+        .order_by(BodyMetric.date)
+    )).all()
+    bm_list = [(r.date, float(r.bodyweight_lbs)) for r in bm_rows]
+
+    def bw_for_date(d):
+        result = None
+        for bm_date, bw in bm_list:
+            if bm_date <= d:
+                result = bw
+            else:
+                break
+        return result
+
     workout_summaries = []
     for w in recent_workouts:
         # Get exercises and sets
@@ -96,6 +114,7 @@ async def build_context(
             .where(WorkoutExercise.workout_id == w.id)
         )
         workout_exercises = we_result.scalars().all()
+        bw = float(w.bodyweight_lbs) if w.bodyweight_lbs else bw_for_date(w.date)
         ex_names = []
         total_volume = 0
         comments = []
@@ -110,8 +129,9 @@ async def build_context(
             sets_result = await db.execute(
                 select(Set).where(Set.workout_exercise_id == we.id)
             )
+            equipment = ex.equipment if ex else None
             for s in sets_result.scalars().all():
-                total_volume += float(s.weight_lbs) * s.reps
+                total_volume += effective_load(float(s.weight_lbs), equipment, bw) * s.reps
                 if s.notes:
                     comments.append(s.notes)
 

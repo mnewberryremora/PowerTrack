@@ -1,8 +1,7 @@
 from datetime import date, timedelta
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc, and_, delete
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
@@ -10,9 +9,8 @@ from app.db import get_db
 from app.models.pr import PersonalRecord
 from app.models.exercise import Exercise
 from app.models.user import User
-from app.models.workout import Set, WorkoutExercise, Workout
 from app.schemas.pr import PROut
-from app.services.pr_detection import epley_e1rm
+from app.services.pr_detection import recalculate_user_prs
 
 router = APIRouter()
 
@@ -122,69 +120,6 @@ async def recalculate_all_prs(
     current_user: User = Depends(get_current_user),
 ):
     """Rebuild all PRs from actual set data for the current user."""
-    await db.execute(delete(PersonalRecord).where(PersonalRecord.user_id == current_user.id))
-    await db.flush()
-
-    all_sets_result = await db.execute(select(Set).where(Set.is_pr.is_(True)))
-    # Only reset is_pr on sets belonging to current user's workouts
-    user_workout_ids_stmt = select(Workout.id).where(Workout.user_id == current_user.id)
-    user_sets_result = await db.execute(
-        select(Set)
-        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
-        .where(
-            Set.is_pr.is_(True),
-            WorkoutExercise.workout_id.in_(user_workout_ids_stmt),
-        )
-    )
-    for s in user_sets_result.scalars().all():
-        s.is_pr = False
-        s.e1rm_lbs = None
-    await db.flush()
-
-    stmt = (
-        select(Set, WorkoutExercise, Workout)
-        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
-        .join(Workout, WorkoutExercise.workout_id == Workout.id)
-        .where(Workout.user_id == current_user.id, Set.set_type != "warmup")
-        .order_by(Workout.date, Set.id)
-    )
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    best: dict[tuple[int, int], dict] = {}
-    for set_row, we_row, workout_row in rows:
-        exercise_id = we_row.exercise_id
-        rep_count = set_row.reps
-        weight = float(set_row.weight_lbs)
-        key = (exercise_id, rep_count)
-        current = best.get(key)
-        if current is None or weight > current["weight"]:
-            best[key] = {
-                "weight": weight,
-                "set_row": set_row,
-                "exercise_id": exercise_id,
-                "rep_count": rep_count,
-                "date": workout_row.date,
-                "previous_weight": current["weight"] if current else None,
-            }
-
-    new_count = 0
-    for key, info in best.items():
-        e1rm = Decimal(str(epley_e1rm(info["weight"], info["rep_count"])))
-        pr = PersonalRecord(
-            user_id=current_user.id,
-            exercise_id=info["exercise_id"],
-            set_id=info["set_row"].id,
-            rep_count=info["rep_count"],
-            weight_lbs=Decimal(str(info["weight"])),
-            e1rm_lbs=e1rm,
-            date=info["date"],
-            previous_weight_lbs=Decimal(str(info["previous_weight"])) if info["previous_weight"] else None,
-        )
-        db.add(pr)
-        info["set_row"].is_pr = True
-        info["set_row"].e1rm_lbs = e1rm
-        new_count += 1
-
+    new_count = await recalculate_user_prs(db, current_user.id)
     await db.commit()
     return {"ok": True, "prs_created": new_count}
