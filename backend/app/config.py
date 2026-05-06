@@ -11,5 +11,11 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
 
+    def model_post_init(self, __context) -> None:
+        # Railway's ${{Postgres.DATABASE_URL}} resolves to postgresql://...
+        # but SQLAlchemy needs postgresql+asyncpg:// for the async driver.
+        if self.database_url.startswith("postgresql://"):
+            self.database_url = "postgresql+asyncpg://" + self.database_url[len("postgresql://"):]
+
 
 settings = Settings()
