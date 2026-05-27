@@ -2,10 +2,10 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
-  Dumbbell, Trophy, Calendar, TrendingUp, Plus, Timer,
+  Dumbbell, Trophy, Calendar, TrendingUp, Plus, Timer, Activity, Layers,
 } from 'lucide-react'
 import { prs, workouts, bodyMetrics, meets, analytics } from '../api/client'
-import type { PR, WorkoutSummary, BodyMetric, Meet } from '../types'
+import type { PR, WorkoutSummary, BodyMetric, Meet, AnalyticsSummary } from '../types'
 import { formatDate, daysUntil } from '../utils/date'
 
 export default function Dashboard() {
@@ -29,6 +29,10 @@ export default function Dashboard() {
   const dotsQuery = useQuery<{ data: Array<{ date: string; dots: number; bodyweight_lbs: number; total_lbs: number }> }>({
     queryKey: ['analytics', 'dots'],
     queryFn: analytics.dots,
+  })
+  const summaryQuery = useQuery<AnalyticsSummary>({
+    queryKey: ['analytics', 'summary'],
+    queryFn: () => analytics.summary(),
   })
 
   // Best competition PRs for SBD — prefer actual 1RM, fall back to best e1RM
@@ -140,6 +144,32 @@ export default function Dashboard() {
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Lifetime totals */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-surface rounded-xl p-5 border border-surface-light">
+              <div className="flex items-center gap-3 mb-2">
+                <Activity size={20} className="text-primary" />
+                <span className="text-text-muted text-sm font-medium">Total Pounds Lifted (All Time)</span>
+              </div>
+              <p className="text-3xl font-bold text-text">
+                {summaryQuery.data
+                  ? `${Math.round(summaryQuery.data.lifetime_volume_lbs).toLocaleString()} lbs`
+                  : '--'}
+              </p>
+            </div>
+            <div className="bg-surface rounded-xl p-5 border border-surface-light">
+              <div className="flex items-center gap-3 mb-2">
+                <Layers size={20} className="text-accent" />
+                <span className="text-text-muted text-sm font-medium">Total Sets Performed (All Time)</span>
+              </div>
+              <p className="text-3xl font-bold text-text">
+                {summaryQuery.data
+                  ? summaryQuery.data.lifetime_sets.toLocaleString()
+                  : '--'}
+              </p>
+            </div>
           </div>
 
           {/* Main content grid */}

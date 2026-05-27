@@ -394,12 +394,15 @@ export interface AdminUser {
 // ── Analytics ──
 
 export interface AnalyticsSummary {
-  period: string
   total_workouts: number
-  total_volume_lbs: number
-  avg_intensity_pct: number
-  estimated_1rms: Record<string, number>
-  dots_score?: number
-  bodyweight_trend: Array<{ date: string; weight_lbs: number }>
-  volume_by_muscle_group: Record<string, number>
+  workouts_this_week: number
+  bodyweight_lbs: number | null
+  body_fat_pct: number | null
+  competition_prs: Record<string, { weight_lbs: number; date: string }>
+  total_lbs: number
+  dots_score: number | null
+  recent_pr_count: number
+  lifetime_volume_lbs: number
+  lifetime_sets: number
+  next_meet: { name: string; date: string; days_out: number } | null
 }

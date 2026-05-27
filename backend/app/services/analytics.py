@@ -351,6 +351,43 @@ async def get_summary(db: AsyncSession, user_id: int) -> dict[str, Any]:
         select(BodyMetric).where(BodyMetric.user_id == user_id).order_by(desc(BodyMetric.date)).limit(1)
     )).scalar_one_or_none()
 
+    # Lifetime totals (working sets only; bodyweight exercises include BW in load)
+    bm_rows = (await db.execute(
+        select(BodyMetric.date, BodyMetric.bodyweight_lbs)
+        .where(BodyMetric.user_id == user_id, BodyMetric.bodyweight_lbs.is_not(None))
+        .order_by(BodyMetric.date)
+    )).all()
+    bm_list = [(r.date, float(r.bodyweight_lbs)) for r in bm_rows]
+
+    def bw_for_date(d: date) -> float | None:
+        result = None
+        for bm_date, bw in bm_list:
+            if bm_date <= d:
+                result = bw
+            else:
+                break
+        return result
+
+    lifetime_rows = (await db.execute(
+        select(
+            Workout.date,
+            Workout.bodyweight_lbs,
+            Exercise.equipment,
+            Set.weight_lbs,
+            Set.reps,
+        )
+        .join(WorkoutExercise, Workout.id == WorkoutExercise.workout_id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+        .join(Set, WorkoutExercise.id == Set.workout_exercise_id)
+        .where(Workout.user_id == user_id, Set.set_type != "warmup")
+    )).all()
+    lifetime_lbs = 0.0
+    lifetime_sets = 0
+    for row in lifetime_rows:
+        bw = float(row.bodyweight_lbs) if row.bodyweight_lbs else bw_for_date(row.date)
+        lifetime_lbs += effective_load(float(row.weight_lbs), row.equipment, bw) * row.reps
+        lifetime_sets += 1
+
     comp_exercises = (await db.execute(
         select(Exercise).where(Exercise.is_competition.is_(True))
     )).scalars().all()
@@ -394,6 +431,8 @@ async def get_summary(db: AsyncSession, user_id: int) -> dict[str, Any]:
         "total_lbs": total_lbs,
         "dots_score": dots,
         "recent_pr_count": recent_pr_count,
+        "lifetime_volume_lbs": round(lifetime_lbs, 1),
+        "lifetime_sets": lifetime_sets,
         "next_meet": {
             "name": next_meet.name,
             "date": str(next_meet.date),
