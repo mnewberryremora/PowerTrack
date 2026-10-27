@@ -97,6 +97,27 @@ async def list_workouts(
     return summaries
 
 
+@router.get("/export")
+async def export_workouts(
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    content = await export_workouts_to_xlsx(db, current_user.id, start_date, end_date)
+    parts = ["training_export"]
+    if start_date:
+        parts.append(start_date.isoformat())
+    if end_date:
+        parts.append(end_date.isoformat())
+    filename = "_".join(parts) + ".xlsx"
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.get("/{workout_id}", response_model=WorkoutOut)
 async def get_workout(
     workout_id: int,
@@ -405,25 +426,4 @@ async def download_template(_: User = Depends(get_current_user)):
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=training_log_template.xlsx"},
-    )
-
-
-@router.get("/export")
-async def export_workouts(
-    start_date: date | None = Query(None),
-    end_date: date | None = Query(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    content = await export_workouts_to_xlsx(db, current_user.id, start_date, end_date)
-    parts = ["training_export"]
-    if start_date:
-        parts.append(start_date.isoformat())
-    if end_date:
-        parts.append(end_date.isoformat())
-    filename = "_".join(parts) + ".xlsx"
-    return StreamingResponse(
-        io.BytesIO(content),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
