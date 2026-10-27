@@ -89,6 +89,8 @@ export const workouts = {
     api.post('/api/workouts/import/confirm', data).then(r => r.data),
   importTemplate: () =>
     api.get('/api/workouts/import/template', { responseType: 'blob' }).then(r => r.data),
+  export: (params: { start_date?: string; end_date?: string }) =>
+    api.get<Blob>('/api/workouts/export', { params, responseType: 'blob' }).then(r => r.data),
 }
 
 // ── Body Metrics ──

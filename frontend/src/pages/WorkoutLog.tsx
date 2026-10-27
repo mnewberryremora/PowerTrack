@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Calendar, Dumbbell, ChevronLeft, ChevronRight, FileSpreadsheet, Trash2, Copy } from 'lucide-react'
+import { Plus, Calendar, Dumbbell, ChevronLeft, ChevronRight, FileSpreadsheet, Download, Trash2, Copy, X } from 'lucide-react'
 import { workouts } from '../api/client'
 import type { WorkoutSummary } from '../types'
 import { formatDate as _formatDate } from '../utils/date'
@@ -16,6 +16,10 @@ export default function WorkoutLog() {
   const [monthOffset, setMonthOffset] = useState(0)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [copyingId, setCopyingId] = useState<number | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportStart, setExportStart] = useState('')
+  const [exportEnd, setExportEnd] = useState('')
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const { start, end, label } = useMemo(() => {
     const d = new Date()
@@ -52,6 +56,39 @@ export default function WorkoutLog() {
     onSettled: () => setCopyingId(null),
   })
 
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      workouts.export({
+        start_date: exportStart || undefined,
+        end_date: exportEnd || undefined,
+      }),
+    onSuccess: (blob) => {
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const parts = ['training_export']
+      if (exportStart) parts.push(exportStart)
+      if (exportEnd) parts.push(exportEnd)
+      a.download = parts.join('_') + '.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      setExportOpen(false)
+      setExportError(null)
+    },
+    onError: () => {
+      setExportError('Export failed. Please try again.')
+    },
+  })
+
+  const openExport = () => {
+    setExportStart(start)
+    setExportEnd(end)
+    setExportError(null)
+    setExportOpen(true)
+  }
+
   const sorted = (data ?? []).sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   )
@@ -62,6 +99,12 @@ export default function WorkoutLog() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-3xl font-bold text-text">Workout Log</h1>
         <div className="flex items-center gap-3">
+          <button
+            onClick={openExport}
+            className="flex items-center gap-2 bg-surface hover:bg-surface-light border border-surface-light text-text px-4 py-2.5 rounded-lg font-medium transition-colors"
+          >
+            <Download size={18} /> Export XLSX
+          </button>
           <Link
             to="/import"
             className="flex items-center gap-2 bg-surface hover:bg-surface-light border border-surface-light text-text px-4 py-2.5 rounded-lg font-medium transition-colors"
@@ -215,6 +258,85 @@ export default function WorkoutLog() {
             </div>
           )}
         </>
+      )}
+
+      {exportOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+          onClick={() => !exportMutation.isPending && setExportOpen(false)}
+        >
+          <div
+            className="bg-surface rounded-xl border border-surface-light p-6 w-full max-w-md space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-text flex items-center gap-2">
+                <Download size={18} className="text-primary" /> Export workouts to XLSX
+              </h2>
+              <button
+                onClick={() => setExportOpen(false)}
+                disabled={exportMutation.isPending}
+                className="text-text-muted hover:text-text disabled:opacity-50"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-text-muted text-sm">
+              Each row is one set, with workout metadata and bodyweight-aware load / volume / e1RM columns.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-text-muted text-xs font-medium">Start date</span>
+                <input
+                  type="date"
+                  value={exportStart}
+                  onChange={(e) => setExportStart(e.target.value)}
+                  className="mt-1 w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text"
+                />
+              </label>
+              <label className="block">
+                <span className="text-text-muted text-xs font-medium">End date</span>
+                <input
+                  type="date"
+                  value={exportEnd}
+                  onChange={(e) => setExportEnd(e.target.value)}
+                  className="mt-1 w-full bg-bg border border-surface-light rounded-lg px-3 py-2 text-text"
+                />
+              </label>
+            </div>
+            <p className="text-text-muted text-xs">Leave either blank to go unbounded in that direction.</p>
+            {exportError && (
+              <div className="bg-danger/10 border border-danger/30 rounded-lg p-3 text-danger text-sm">
+                {exportError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setExportOpen(false)}
+                disabled={exportMutation.isPending}
+                className="px-4 py-2 rounded-lg text-text-muted hover:text-text transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => exportMutation.mutate()}
+                disabled={exportMutation.isPending}
+                className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {exportMutation.isPending ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download size={16} /> Download
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
